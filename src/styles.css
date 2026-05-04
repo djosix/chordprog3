@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-0: #0a0a0b;
+  --color-bg-1: #111113;
+  --color-bg-2: #17181b;
+  --color-bg-3: #1f2024;
+  --color-line: #2a2c31;
+  --color-line-strong: #3a3d44;
+  --color-fg-0: #e7e7ea;
+  --color-fg-1: #b3b5bb;
+  --color-fg-2: #71747c;
+  --color-fg-3: #4a4d54;
+  --color-accent: #6ee7b7;
+  --color-accent-dim: #2dd4bf;
+  --color-warn: #fbbf24;
+  --color-error: #f87171;
+  --color-key: #818cf8;
+  --color-playhead: #f472b6;
+
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --font-sans: "Inter", system-ui, sans-serif;
+
+  --radius: 0px;
+}
+
+* {
+  border-radius: 0 !important;
+}
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-bg-0);
+  color: var(--color-fg-0);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+input, button, select, textarea {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 0;
+  margin: 0;
+}
+
+input:focus-visible {
+  background: var(--color-bg-3);
+}
+
+button:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible {
+  outline: 1px solid var(--color-fg-1);
+  outline-offset: 1px;
+}
+
+button {
+  cursor: pointer;
+  transition: background-color 90ms ease, color 90ms ease, border-color 90ms ease, opacity 90ms ease;
+}
+
+button:not(:disabled):active {
+  filter: brightness(0.85);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: none;
+}
+
+select {
+  cursor: pointer;
+  transition: background-color 90ms ease, color 90ms ease;
+}
+
+::selection {
+  background: var(--color-accent-dim);
+  color: var(--color-bg-0);
+}
+
+/* tighter, dimmer scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-1);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-bg-3);
+  border: 2px solid var(--color-bg-1);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-line-strong);
+}
+
+/* delete-mode cursor: a red circled X. SVG is URL-encoded so it can sit in CSS. */
+.cursor-delete {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 22 22'%3E%3Ccircle cx='11' cy='11' r='9' fill='%2317181b' stroke='%23f87171' stroke-width='1.6'/%3E%3Cline x1='6.5' y1='6.5' x2='15.5' y2='15.5' stroke='%23f87171' stroke-width='2' stroke-linecap='square'/%3E%3Cline x1='15.5' y1='6.5' x2='6.5' y2='15.5' stroke='%23f87171' stroke-width='2' stroke-linecap='square'/%3E%3C/svg%3E") 11 11, not-allowed;
+}
+
+/* shared icon-button hit target so we can mash buttons easily with a mouse */
+.btn-icon, .btn-icon-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  color: var(--color-fg-2);
+  transition:
+    background-color 90ms ease,
+    color 90ms ease,
+    border-color 90ms ease,
+    transform 60ms ease;
+}
+.btn-icon { min-width: 28px; min-height: 26px; padding: 4px 6px; }
+.btn-icon-sm { min-width: 24px; min-height: 22px; padding: 3px 4px; }
+.btn-icon:hover, .btn-icon-sm:hover {
+  background: var(--color-bg-3);
+  border-color: var(--color-line);
+  color: var(--color-fg-0);
+}
+.btn-icon:active, .btn-icon-sm:active {
+  background: var(--color-line);
+  transform: scale(0.96);
+}
+.btn-icon:disabled, .btn-icon-sm:disabled {
+  background: transparent;
+  border-color: transparent;
+}
