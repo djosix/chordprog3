@@ -34,6 +34,7 @@
 - 一個 line（row）可以放任意數量的 measure（bar），固定寬度，太多時可水平 scroll；title/desc column 在 sticky-left，不會跟 measure 一起滑動
 - 每 measure 內每一拍（beat）都有自己的和弦輸入；一個 4/4 measure 最多 4 個和弦輸入
 - 和弦解析失敗就標紅
+- chord input 的 commit 階段會把 Unicode `♭` / `♯` 自動轉成 ASCII `b` / `#`，所以從樂譜軟體貼過來的和弦也能解析
 - 每個 beat 各自有 style / voicing / range 設定（hover gear icon 開 popover）
 - Layout
   - 換行：bar header 上的 `↵`（corner-down-left）按鈕（從 bar 2 開始才會顯示），按下後從這個 measure 開始另起一行
@@ -77,7 +78,8 @@
 - 播放
   - `space`：play / pause
   - `0`：stop & rewind to start
-  - loop on/off：bottom bar 上的按鈕（不再用 keyboard shortcut，因為 `l` 給了「new line」）
+  - `l`：listen — 預覽 playhead 處的和弦（只在停止狀態下響應；播放中按 `l` 不會疊加，避免和已 baked 的 transport schedule 重複觸發）
+  - `o`：toggle loop（也可以按 bottom bar 上的 loop 按鈕）
 - 編輯
   - `enter`：focus 到 playhead 所在 beat 的 chord input；input 內按 enter 提交並 blur，提交時會 reformat（`cmaj7` → `Cmaj7`）；無法解析的和弦顯示為紅色
   - `shift+enter`（input 內）：用 midi-in 偵測到的和弦填入
@@ -97,10 +99,15 @@
   - `,` / `.`：刻意停用
   - 在 chord block 中任意空白處點擊也可以把 playhead 移到該 beat（input 本身佔位較窄，留出可點空間）
 - Selection / clipboard
-  - `cmd-c / x / v`：copy / cut / paste（基於 measure 選取）；只有當有選取時才攔截，否則放行給輸入框
+  - `cmd-c / x / v`：copy / cut / paste（基於 measure 選取）；只有焦點不在 INPUT / TEXTAREA 時才會攔截，輸入框內仍維持瀏覽器原生 text 操作
   - `cmd-shift-v`：取代選取
   - `delete / backspace`：刪除選取
+  - 任何結構性 mutation（insert/append/move/delete/break/join/cut/paste）會自動清除目前的 bar selection，避免指向已不存在的 bar
   - `esc`：清除選取、blur，並把 playhead 跳回整份 score 的第一個 beat
+- Undo / redo
+  - `cmd-z`：undo；`cmd-shift-z`（或 `cmd-y`）：redo
+  - 只在 INPUT / TEXTAREA 沒有 focus 時攔截，因此輸入框內仍可用瀏覽器原生 text-undo
+  - 應用層歷史以 score 整份 JSON snapshot 為單位，去抖 250ms，所以連續打字 / 拖曳 note 會被收成一個 step；上限 200 step
 
 ## Beat settings strip
 

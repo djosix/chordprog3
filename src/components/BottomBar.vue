@@ -23,7 +23,7 @@ const loopLabel = computed(() => {
       ? `r${sel.startRow + 1}.b${sel.startBar + 1}`
       : `r${sel.startRow + 1}.b${sel.startBar + 1} → r${sel.endRow + 1}.b${sel.endBar + 1}`
     : null
-  if (playback.loop) return range ? `loop ${range}` : 'loop on'
+  if (playback.loop) return range ? `loop ${range}` : 'loop all'
   return range ? `play ${range}` : 'loop off'
 })
 
@@ -37,11 +37,13 @@ async function refreshMidi() {
   await playback.ensureMidi()
 }
 
-function totalBeats() {
+// Computed (not a method) — re-evaluated only when rows/bars/beats change,
+// not on every rAF tick during playback.
+const totalBeats = computed(() => {
   let n = 0
   for (const r of score.score.rows) for (const b of r.bars) n += b.beats.length
   return n
-}
+})
 
 const transportButtons = computed(() => [
   { id: 'prevBar', icon: 'skip-back', title: 'prev bar  (shift+←)', click: () => playback.stepBar(-1) },
@@ -53,7 +55,13 @@ const transportButtons = computed(() => [
     click: () => playback.play(),
     accent: !playback.isPlaying,
   },
-  { id: 'pause', icon: 'pause', title: 'pause  (space)', click: () => playback.pause() },
+  {
+    id: 'pause',
+    icon: 'pause',
+    title: 'pause  (space)',
+    click: () => playback.pause(),
+    accent: playback.isPlaying,
+  },
   {
     id: 'stop',
     icon: 'stop',
@@ -84,6 +92,7 @@ const transportButtons = computed(() => [
             : 'text-[var(--color-fg-1)] hover:text-[var(--color-fg-0)]'
         "
         :title="b.title"
+        :aria-label="b.title"
         @click="b.click"
       >
         <Icon :name="b.icon as any" :size="16" />
@@ -97,12 +106,14 @@ const transportButtons = computed(() => [
           ? 'bg-[var(--color-accent)] text-[var(--color-bg-0)] border-[var(--color-accent)] hover:bg-[var(--color-accent-dim)]'
           : 'border-[var(--color-line)] text-[var(--color-fg-2)] hover:text-[var(--color-fg-0)] hover:bg-[var(--color-bg-3)] hover:border-[var(--color-line-strong)]'
       "
-      :title="playback.loop ? 'loop ON  (o)' : 'loop OFF  (o)'"
+      :title="playback.loop ? 'toggle loop (o)' : 'toggle loop (o)'"
       :aria-pressed="playback.loop"
       @click="playback.loop = !playback.loop"
     >
       <Icon name="loop" :size="14" />
-      <span class="normal-case lowercase">{{ loopLabel }}</span>
+      <span
+        class="normal-case lowercase max-w-[14rem] overflow-hidden text-ellipsis whitespace-nowrap"
+      >{{ loopLabel }}</span>
     </button>
     <div class="flex-1"></div>
     <div
@@ -132,8 +143,11 @@ const transportButtons = computed(() => [
         {{ midi.heldList.length }} held
       </span>
     </div>
-    <div class="px-2 text-[var(--color-fg-2)] uppercase tracking-wider">
-      {{ positionLabel }} / {{ totalBeats() }}b
+    <div
+      class="px-2 text-[var(--color-fg-2)] uppercase tracking-wider"
+      style="font-variant-numeric: tabular-nums"
+    >
+      {{ positionLabel }} / {{ totalBeats }}b
     </div>
     <div class="w-px h-6 bg-[var(--color-line)]"></div>
     <div
@@ -154,14 +168,35 @@ const transportButtons = computed(() => [
         <option value="sample">sample piano</option>
         <option value="midi">midi out</option>
       </select>
+      <span
+        v-if="playback.samplerLoadingState"
+        class="text-[10px] uppercase tracking-wider text-[var(--color-accent)] animate-pulse"
+        title="loading sample piano from CDN"
+      >loading…</span>
+      <span
+        v-else-if="
+          playback.output.mode === 'sample' &&
+          !playback.samplerReadyState &&
+          !playback.samplerLoadingState
+        "
+        class="text-[10px] uppercase tracking-wider text-[var(--color-error)]"
+        title="sample piano unavailable — switch to midi out, or refresh the page"
+      >unavailable</span>
       <select
         v-if="playback.output.mode === 'midi'"
         v-model="playback.output.midiOutputId"
         class="bg-[var(--color-bg-2)] hover:bg-[var(--color-bg-3)] px-2 py-1 text-[var(--color-fg-0)] max-w-[12rem]"
-        title="midi device"
+        :title="
+          playback.midiOutputs.find((o) => o.id === playback.output.midiOutputId)?.name ?? 'midi device'
+        "
       >
         <option v-if="!playback.midiOutputs.length" :value="null">— no devices —</option>
-        <option v-for="o in playback.midiOutputs" :key="o.id" :value="o.id">{{ o.name }}</option>
+        <option
+          v-for="o in playback.midiOutputs"
+          :key="o.id"
+          :value="o.id"
+          :title="o.name"
+        >{{ o.name }}</option>
       </select>
       <button
         v-if="playback.output.mode === 'midi'"

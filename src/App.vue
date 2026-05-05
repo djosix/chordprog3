@@ -35,10 +35,25 @@ function onKey(e: KeyboardEvent) {
   const typing = isTypingTarget(e.target)
   const meta = e.metaKey || e.ctrlKey
 
-  // meta-based selection shortcuts work even while typing in an input,
-  // BUT only when there is a bar selection to act on; otherwise we let the
-  // event through so the input behaves normally.
-  if (meta && score.selection.anchor) {
+  // cmd/ctrl + z (undo) / cmd/ctrl + shift + z (redo). Only when NOT inside
+  // a typing target — let inputs keep their native text undo first. The
+  // app-level history covers committed score mutations (chord commits, bar
+  // ops, note edits), which is what the user expects after blurring.
+  if (meta && e.code === 'KeyZ' && !typing) {
+    return consume(e, () => {
+      if (e.shiftKey) score.redo()
+      else score.undo()
+    })
+  }
+  // cmd/ctrl + y → also redo (Windows convention; harmless on Mac)
+  if (meta && e.code === 'KeyY' && !typing && !e.shiftKey) {
+    return consume(e, () => score.redo())
+  }
+
+  // Meta-based bar-clipboard shortcuts. When an input/textarea is focused,
+  // let the browser's native cmd+c/x/v handle the input's own text — the
+  // bar-level operations only fire outside a typing target.
+  if (meta && !typing && score.selection.anchor) {
     if (e.code === 'KeyC') return consume(e, () => score.copySelection())
     if (e.code === 'KeyX') return consume(e, () => score.cutSelection())
     if (e.code === 'KeyV') {
@@ -52,15 +67,21 @@ function onKey(e: KeyboardEvent) {
           score.pasteAt(r.startRow, r.startBar)
           return
         }
-        // No selection — paste AFTER the playhead bar. Park the playhead on
-        // the last bar of a row to paste at the end (the original missing
-        // case); pasteAt with barIndex == row.bars.length appends.
         const ri = playback.playhead.rowIndex
         const bi = playback.playhead.barIndex
         const row = score.score.rows[ri]
         if (row) score.pasteAt(ri, Math.min(bi + 1, row.bars.length))
       })
     }
+  }
+  // cmd+v with no bar-selection but also not in an input — paste at playhead.
+  if (meta && !typing && !score.selection.anchor && e.code === 'KeyV') {
+    return consume(e, () => {
+      const ri = playback.playhead.rowIndex
+      const bi = playback.playhead.barIndex
+      const row = score.score.rows[ri]
+      if (row) score.pasteAt(ri, Math.min(bi + 1, row.bars.length))
+    })
   }
 
   // Esc: clear selection, blur the focused element, and jump the playhead to
@@ -86,8 +107,8 @@ function onKey(e: KeyboardEvent) {
       else playback.play()
     })
   }
-  // Enter → focus the chord input at the playhead position
-  if (e.code === 'Enter' && !meta) {
+  // Enter (or NumpadEnter on full keyboards) → focus the chord input
+  if ((e.code === 'Enter' || e.code === 'NumpadEnter') && !meta) {
     return consume(e, () => focusPlayheadChordInput())
   }
   if ((e.code === 'Digit0' || e.code === 'Numpad0') && !meta) {
@@ -159,8 +180,10 @@ function onKey(e: KeyboardEvent) {
   if (e.code === 'KeyO' && !meta && !e.shiftKey) {
     return consume(e, () => (playback.loop = !playback.loop))
   }
-  // suppress browser cmd+a / cmd+f when not typing
-  if (meta && (e.code === 'KeyA' || e.code === 'KeyF') && !typing) {
+  // suppress browser cmd+a (select-all-page-text), cmd+f (find), cmd+s
+  // (save page) when not typing — these would otherwise hijack the score-
+  // editing flow with surprise browser dialogs / page selections.
+  if (meta && (e.code === 'KeyA' || e.code === 'KeyF' || e.code === 'KeyS') && !typing) {
     return consume(e, () => {})
   }
   // y / p — yank / paste beat settings (style, voicing, range)

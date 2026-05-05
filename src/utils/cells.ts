@@ -3,17 +3,22 @@ import { beatVoicing } from '@/utils/voicing'
 
 /** how many 1/32 cells fit in a single beat under this time signature */
 export function cellsPerBeat(ts: TimeSignature): number {
-  return Math.max(1, Math.round(32 / ts.denominator))
+  // Defensive: a corrupted persisted ts.denominator of 0 / NaN / negative
+  // would produce Infinity / NaN and poison every downstream timing call.
+  const den = Number.isFinite(ts.denominator) && ts.denominator > 0 ? ts.denominator : 4
+  return Math.max(1, Math.round(32 / den))
 }
 
 /** total number of 1/32 cells in a bar under this time signature */
 export function cellsPerBar(ts: TimeSignature): number {
-  return ts.numerator * cellsPerBeat(ts)
+  const num = Number.isFinite(ts.numerator) && ts.numerator > 0 ? ts.numerator : 4
+  return num * cellsPerBeat(ts)
 }
 
 /** seconds-per-cell at the current bpm. bpm = beats per minute. */
 export function cellSeconds(ts: TimeSignature, bpm: number): number {
-  return 60 / bpm / cellsPerBeat(ts)
+  const safeBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 100
+  return 60 / safeBpm / cellsPerBeat(ts)
 }
 
 /**
@@ -55,6 +60,9 @@ export function notesFromBar(bar: Bar, ts: TimeSignature): PianoRollNote[] {
 function notesForSpan(beat: Beat, startBeat: number, endBeat: number, cpb: number): PianoRollNote[] {
   const v = beatVoicing(beat)
   if (!v.length) return []
+  // Defensive: a 0-length span would emit notes with duration 0, which
+  // confuses both the piano-roll renderer and the playback hits[] (durSec=0).
+  if (endBeat <= startBeat) return []
   const startCell = startBeat * cpb
   const totalCells = (endBeat - startBeat) * cpb
   const out: PianoRollNote[] = []

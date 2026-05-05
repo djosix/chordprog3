@@ -56,6 +56,18 @@ input:focus-visible {
   background: var(--color-bg-3);
 }
 
+/* Default placeholder color — fg-2 on bg-0 fails WCAG AA. fg-1 reads
+   clearly without being mistaken for a real value. */
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-fg-3);
+  opacity: 1;
+}
+input:focus::placeholder,
+textarea:focus::placeholder {
+  color: var(--color-fg-2);
+}
+
 button:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
@@ -111,6 +123,15 @@ select {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-line-strong);
+}
+
+/* Smooth the selection / playhead background transitions on bars and beats
+   so toggling them feels like a state change rather than a snap. The
+   playhead RING (BarEditor.vue line 70) intentionally stays instant for
+   responsive playback feedback. */
+[data-chord-bar],
+[data-chord-bar] > div {
+  transition: background-color 90ms ease;
 }
 
 /* delete-mode cursor: a red circled X. SVG is URL-encoded so it can sit in CSS. */

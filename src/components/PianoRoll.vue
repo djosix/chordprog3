@@ -231,6 +231,12 @@ function onWinMouseMove(e: MouseEvent) {
 }
 
 function onDeleteMove(e: MouseEvent) {
+  // If the user releases alt/cmd mid-drag, the cursor flips back to crosshair
+  // (via altOrMeta) but onDeleteMove kept eating notes. End the drag instead.
+  if (!e.altKey && !e.metaKey) {
+    onWinMouseUp()
+    return
+  }
   const el = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest(
     '[data-pr-row][data-pr-bar]',
   ) as HTMLElement | null
@@ -600,8 +606,8 @@ onBeforeUnmount(() => {
               midi.heldPitches.has(p)
                 ? 'bg-[var(--color-accent)] text-[var(--color-bg-0)]'
                 : isBlack(p)
-                  ? 'bg-[var(--color-bg-1)] text-[var(--color-fg-3)] hover:bg-[var(--color-bg-3)]'
-                  : 'bg-[var(--color-bg-2)] text-[var(--color-fg-2)] hover:bg-[var(--color-bg-3)]',
+                  ? 'bg-[var(--color-bg-1)] text-[var(--color-fg-1)] hover:bg-[var(--color-bg-3)]'
+                  : 'bg-[var(--color-bg-2)] text-[var(--color-fg-1)] hover:bg-[var(--color-bg-3)]',
             ]"
             :style="{ height: PR_CELL_H + 'px', lineHeight: PR_CELL_H + 'px' }"
             @mousedown="(e) => onKeyMouseDown(e, p)"

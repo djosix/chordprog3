@@ -47,7 +47,7 @@ const tsOptions = ['2/4', '3/4', '4/4', '5/4', '6/4', '6/8', '7/8', '12/8']
         type="number"
         :value="score.score.bpm"
         @change="(e) => score.setBpm(parseInt((e.target as HTMLInputElement).value, 10))"
-        class="bg-[var(--color-bg-2)] hover:bg-[var(--color-bg-3)] focus:bg-[var(--color-bg-3)] px-2 py-1 w-14 text-[var(--color-fg-0)]"
+        class="bg-[var(--color-bg-2)] hover:bg-[var(--color-bg-3)] focus:bg-[var(--color-bg-3)] px-2 py-1 w-16 text-[var(--color-fg-0)]"
         min="20"
         max="400"
       />
@@ -55,7 +55,7 @@ const tsOptions = ['2/4', '3/4', '4/4', '5/4', '6/4', '6/8', '7/8', '12/8']
     <div class="w-px h-5 bg-[var(--color-line)]"></div>
     <button
       class="hover:bg-[var(--color-bg-3)] text-[var(--color-fg-2)] hover:text-[var(--color-fg-0)] border border-[var(--color-line)] flex items-center gap-1.5 px-3"
-      style="min-height: 30px; min-width: 64px"
+      style="min-height: 32px; min-width: 64px"
       :class="manualOpen ? 'text-[var(--color-fg-0)] bg-[var(--color-bg-3)]' : ''"
       @click="manualOpen = !manualOpen"
       title="manual / shortcuts"

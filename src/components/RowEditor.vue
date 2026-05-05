@@ -39,8 +39,9 @@ function onDocPointerDown(e: PointerEvent) {
 function onDocKey(e: KeyboardEvent) {
   if (!showRowMenu.value) return
   if (e.code === 'Escape') {
-    e.preventDefault()
-    e.stopPropagation()
+    // Close the menu — but DON'T stopPropagation so App.vue's global Esc
+    // (clear selection + jump playhead to top) still runs. Both behaviors
+    // are part of "esc means cancel current state".
     showRowMenu.value = false
   }
 }
@@ -91,11 +92,23 @@ onBeforeUnmount(() => {
           class="absolute right-0 top-full mt-1 z-40 border border-[var(--color-line-strong)] bg-[var(--color-bg-2)] min-w-[12rem] py-1 normal-case shadow-lg"
         >
           <button class="block w-full text-left px-3 py-1 hover:bg-[var(--color-bg-3)] text-[var(--color-fg-1)]" @click="runMenu(() => score.duplicateRow(rowIndex))">duplicate row</button>
-          <button class="block w-full text-left px-3 py-1 hover:bg-[var(--color-bg-3)] text-[var(--color-fg-1)]" @click="runMenu(() => score.moveRow(rowIndex, -1))">move up</button>
-          <button class="block w-full text-left px-3 py-1 hover:bg-[var(--color-bg-3)] text-[var(--color-fg-1)]" @click="runMenu(() => score.moveRow(rowIndex, 1))">move down</button>
+          <button
+            class="block w-full text-left px-3 py-1 hover:bg-[var(--color-bg-3)] text-[var(--color-fg-1)] disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+            :disabled="rowIndex === 0"
+            @click="runMenu(() => score.moveRow(rowIndex, -1))"
+          >move up</button>
+          <button
+            class="block w-full text-left px-3 py-1 hover:bg-[var(--color-bg-3)] text-[var(--color-fg-1)] disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+            :disabled="rowIndex >= score.score.rows.length - 1"
+            @click="runMenu(() => score.moveRow(rowIndex, 1))"
+          >move down</button>
           <button class="block w-full text-left px-3 py-1 hover:bg-[var(--color-bg-3)] text-[var(--color-fg-1)]" @click="runMenu(() => score.addRowAfter(rowIndex))">insert row below</button>
           <div class="border-t border-[var(--color-line)] my-1"></div>
-          <button class="block w-full text-left px-3 py-1 hover:bg-[var(--color-bg-3)] text-[var(--color-error)]" @click="runMenu(() => score.deleteRow(rowIndex))">delete row</button>
+          <button
+            class="block w-full text-left px-3 py-1 hover:bg-[var(--color-bg-3)] text-[var(--color-error)] disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+            :disabled="score.score.rows.length <= 1"
+            @click="runMenu(() => score.deleteRow(rowIndex))"
+          >delete row</button>
           <button v-if="rowIndex > 0" class="block w-full text-left px-3 py-1 hover:bg-[var(--color-bg-3)] text-[var(--color-fg-1)]" @click="runMenu(() => score.joinPrevRow(rowIndex))">join with previous row</button>
           <div class="border-t border-[var(--color-line)] my-1"></div>
           <button class="block w-full text-left px-3 py-1 hover:bg-[var(--color-bg-3)] text-[var(--color-fg-1)]" @click="runMenu(regenerateRowNotes)">regenerate all notes from chords</button>

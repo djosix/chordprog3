@@ -35,11 +35,21 @@ export function applyVoicing(midi: number[], mode: VoicingMode, bass: string | n
       if (sorted.length === 3) return [sorted[0], sorted[2]]
       return sorted
     case 'power': {
-      // root + perfect fifth + octave; drops 3rd / 7th / extensions
+      // root + the chord's actual fifth + octave. For diminished chords the
+      // "fifth" is 6 semitones (b5); for augmented it's 8 (#5). Find whichever
+      // chord-tone sits in the [+5..+8] window above the root and use it
+      // verbatim — the previous code hard-coded +7 which silently turned
+      // every Cdim power-chord into a Cmaj power-chord.
       const root = sorted[0]
-      // try to find an existing fifth (7 semitones above root, modulo 12)
-      const fifth = sorted.find((n) => ((n - root) % 12 + 12) % 12 === 7) ?? root + 7
-      return [root, root + 7 === fifth ? fifth : root + 7, root + 12]
+      let fifthOffset = 7
+      for (const n of sorted) {
+        const semis = ((n - root) % 12 + 12) % 12
+        if (semis >= 5 && semis <= 8) {
+          fifthOffset = semis
+          break
+        }
+      }
+      return [root, root + fifthOffset, root + 12]
     }
     case 'open': {
       // root low, then upper notes spread above (gospel / pop-piano spread)
@@ -163,92 +173,3 @@ function clampToRange(midi: number[], lo: number, hi: number): number[] {
   })
 }
 
-/**
- * Generate a per-sub-beat note plan based on accompaniment style.
- * Returns an array of {time: 0..1, notes: number[], duration: 0..1} entries
- * representing what plays during this single beat.
- */
-export interface NoteHit {
-  /** offset within the beat 0..1 */
-  offset: number
-  /** how long to hold (in beats) */
-  duration: number
-  /** midi notes */
-  notes: number[]
-}
-
-export function patternForBeat(beat: Beat, isFirstOfBar: boolean): NoteHit[] {
-  const v = beatVoicing(beat)
-  if (!v.length) return []
-  // Many of the multi-beat patterns use root vs. upper-chord vs. mid-chord.
-  const root = v[0]
-  const upper = v.slice(1)
-  switch (beat.style) {
-    case 'block':
-      return [{ offset: 0, duration: 1, notes: v }]
-    case 'sustain':
-      // hold only on first beat of the bar; otherwise nothing
-      return isFirstOfBar ? [{ offset: 0, duration: 4, notes: v }] : []
-    case 'rest':
-      return []
-    case 'arp-up':
-      return arpHits(v, false)
-    case 'arp-down':
-      return arpHits([...v].reverse(), false)
-    case 'arp-up-down': {
-      const seq = [...v, ...[...v].reverse().slice(1, -1)]
-      return arpHits(seq, false)
-    }
-    case 'alberti': {
-      // 4-note alberti: low, high, mid, high (cycles within v)
-      const low = v[0]
-      const high = v[v.length - 1]
-      const mid = v[Math.floor(v.length / 2)] ?? high
-      const seq = [low, high, mid, high]
-      return arpHits(seq, true)
-    }
-    case 'bossa': {
-      // Bossa-feel comping: bass root on the down-beat, upper chord stabs on
-      // the offbeat 8ths (.5). Plays root for the full beat, chord for the 2nd
-      // half (a syncopated feel when chained across beats).
-      if (!upper.length) return [{ offset: 0, duration: 1, notes: v }]
-      return [
-        { offset: 0, duration: 0.5, notes: [root] },
-        { offset: 0.5, duration: 0.5, notes: upper },
-      ]
-    }
-    case 'waltz': {
-      // For triple meter: root on beat 1 of the cycle, chord stabs on 2 & 3.
-      // We approximate per-beat: if it's first beat, play root; otherwise
-      // play upper-chord stab.
-      return [{ offset: 0, duration: 1, notes: isFirstOfBar ? [root] : upper.length ? upper : v }]
-    }
-    case 'bass-chord': {
-      // Pop ballad — alternating bass and chord. On beat 1: root. Other beats:
-      // upper chord. Half-duration each so the listener hears the swap.
-      return [{ offset: 0, duration: 1, notes: isFirstOfBar ? [root] : upper.length ? upper : v }]
-    }
-    case 'reggae': {
-      // Off-beat upbeat — silence on the down-beat, chord stab on the &.
-      return [{ offset: 0.5, duration: 0.5, notes: upper.length ? upper : v }]
-    }
-    default:
-      return [{ offset: 0, duration: 1, notes: v }]
-  }
-}
-
-function arpHits(seq: number[], evenSubdiv: boolean): NoteHit[] {
-  const n = seq.length
-  if (!n) return []
-  const step = evenSubdiv ? 1 / 4 : 1 / n
-  const dur = step
-  const hits: NoteHit[] = []
-  for (let i = 0; i < (evenSubdiv ? 4 : n); i++) {
-    hits.push({
-      offset: i * step,
-      duration: dur,
-      notes: [seq[i % n]],
-    })
-  }
-  return hits
-}

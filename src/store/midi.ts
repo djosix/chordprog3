@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+import { acceptHMRUpdate, defineStore } from 'pinia'
 import { reactive, ref, computed } from 'vue'
 import { Chord } from 'tonal'
 
@@ -55,7 +55,9 @@ export const useMidiStore = defineStore('midi', () => {
   }
 
   function handleMessage(e: MIDIMessageEvent) {
-    if (!e.data) return
+    // some controllers / sysex devices send shorter messages — note-on/off
+    // need 3 bytes; bail early on anything malformed.
+    if (!e.data || e.data.length < 3) return
     const [status, d1, d2] = Array.from(e.data)
     const cmd = status & 0xf0
     if (cmd === 0x90 && d2 > 0) {
@@ -129,6 +131,10 @@ export const useMidiStore = defineStore('midi', () => {
     onNoteOff,
   }
 })
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useMidiStore, import.meta.hot))
+}
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 

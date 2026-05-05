@@ -85,6 +85,8 @@ const sections: Section[] = [
     rows: [
       { keys: ['click', 'bar header'], desc: 'select that bar' },
       { keys: ['shift', 'click', 'bar'], desc: 'extend the selection across bars and rows (range select)' },
+      { keys: ['cmd', 'z'], desc: 'undo the last edit. inside an input, browser native text-undo runs instead — the app-level history captures committed score mutations only.' },
+      { keys: ['cmd', 'shift', 'z'], desc: 'redo (also cmd+y).' },
       { keys: ['cmd', 'c'], desc: 'copy selected bars (multi-row selections collapse to a flat list — paste lands on one row)' },
       { keys: ['cmd', 'x'], desc: 'cut selected bars' },
       { keys: ['cmd', 'v'], desc: 'paste — with a selection: insert before the selection start; without one: insert AFTER the playhead bar (park the playhead on the last bar to paste at end-of-row)' },
@@ -158,12 +160,15 @@ const sections: Section[] = [
 <template>
   <Teleport to="body">
     <div
-      v-if="open"
+      v-show="open"
       class="fixed inset-0 z-50 flex items-start justify-center bg-[color-mix(in_oklab,black_70%,transparent)] backdrop-blur-sm pt-12"
       @mousedown.self="emit('close')"
     >
       <div
         class="border border-[var(--color-line-strong)] bg-[var(--color-bg-1)] w-[min(900px,92vw)] max-h-[80vh] flex flex-col shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label="manual / shortcuts"
         @mousedown.stop
       >
         <header
@@ -187,7 +192,7 @@ const sections: Section[] = [
             <h3 class="text-[10px] uppercase tracking-[0.2em] text-[var(--color-accent)] border-b border-[var(--color-line)] pb-1">
               {{ s.title }}
             </h3>
-            <div class="grid grid-cols-[14rem_1fr] gap-y-1 gap-x-4">
+            <div class="grid grid-cols-[14rem_1fr] gap-y-2 gap-x-4">
               <template v-for="(r, i) in s.rows" :key="i">
                 <div class="flex items-center gap-1 flex-wrap">
                   <kbd

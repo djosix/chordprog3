@@ -27,7 +27,9 @@ const isPlayhead = computed(
     playback.playhead.barIndex === props.barIndex,
 )
 
-const effectiveKey = computed(() => props.bar.key ?? props.rowKey)
+// `||` instead of `??` — an empty-string bar.key is user-cleared, fall back
+// to row-level key rather than treating "" as a meaningful override.
+const effectiveKey = computed(() => props.bar.key || props.rowKey)
 
 function onMouseDown(e: MouseEvent) {
   if (e.shiftKey) {
@@ -80,6 +82,9 @@ function joinPrevRow() {
     <div
       class="flex items-center gap-1 px-1.5 py-1 text-[10px] uppercase tracking-wider text-[var(--color-fg-3)] border-b border-[var(--color-line)] bg-[var(--color-bg-1)] cursor-pointer hover:bg-[var(--color-bg-2)]"
       style="min-height: 28px"
+      role="button"
+      :aria-pressed="selected"
+      :aria-label="`bar ${barIndex + 1}, ${selected ? 'selected' : 'not selected'} (click to select; shift-click extends)`"
       @click.stop="(e: MouseEvent) => selectThis(e)"
       title="click to select bar; shift-click extends to range"
     >

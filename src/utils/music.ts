@@ -130,10 +130,6 @@ export function midiToName(m: number): string {
   return Note.fromMidi(m)
 }
 
-export function noteName(m: number): string {
-  return Note.fromMidi(m).replace(/\d+/, '')
-}
-
 /**
  * Compute the roman numeral analysis of a chord in a given key
  * (e.g. "C major" + "Am7" -> "vi7"). Returns null when not analysable.

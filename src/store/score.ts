@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, reactive, ref, watch } from 'vue'
 import type {
   Bar,
@@ -220,29 +220,134 @@ export const useScoreStore = defineStore('score', () => {
   // Debounce localStorage writes — full JSON.stringify on every keystroke /
   // drag tick is ~tank-the-UI expensive on large scores.
   let saveTimer: number | null = null
-  function flushSave() {
+  let lastSaveError: unknown = null
+  function flushSave(precomputedJson?: string) {
     if (typeof localStorage === 'undefined') return
     if (saveTimer !== null) {
       window.clearTimeout(saveTimer)
       saveTimer = null
     }
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(score))
-    } catch {
-      /* quota errors are fine to ignore — next write will retry */
+      // Caller can pass a pre-stringified snapshot so we don't pay the
+      // serialization cost twice in the same debounce flush.
+      localStorage.setItem(STORAGE_KEY, precomputedJson ?? JSON.stringify(score))
+      if (lastSaveError) lastSaveError = null
+    } catch (e) {
+      if (lastSaveError !== e) {
+        console.warn('chordprog3: localStorage save failed —', e)
+        lastSaveError = e
+      }
     }
   }
+
+  /* --- Undo / redo: snapshot the JSON-serialized score on each settled
+   *     mutation. We piggy-back on the same deep-watch the localStorage save
+   *     uses; the same 250ms quiet window groups continuous edits (typing,
+   *     dragging notes) into one logical step. Capped at MAX_HISTORY so a
+   *     long session doesn't pin RAM. While restoring (undo / redo applies a
+   *     snapshot back onto the reactive score), the watch fires too — the
+   *     `restoring` flag tells the snapshotter to skip those mutations. */
+  const MAX_HISTORY = 200
+  const undoStack: string[] = []
+  const redoStack: string[] = []
+  let lastSnapshot = JSON.stringify(score)
+  let restoring = false
+
+  function flushHistorySnapshot(precomputedJson?: string): string {
+    const cur = precomputedJson ?? JSON.stringify(score)
+    if (restoring) return cur
+    if (cur === lastSnapshot) return cur
+    undoStack.push(lastSnapshot)
+    if (undoStack.length > MAX_HISTORY) undoStack.shift()
+    redoStack.length = 0
+    lastSnapshot = cur
+    return cur
+  }
+
   watch(
     () => score,
     () => {
-      if (typeof localStorage === 'undefined') return
       if (saveTimer !== null) window.clearTimeout(saveTimer)
-      saveTimer = window.setTimeout(flushSave, 250)
+      saveTimer = window.setTimeout(() => {
+        // One stringify per debounce flush, shared by both consumers.
+        const json = JSON.stringify(score)
+        flushSave(json)
+        flushHistorySnapshot(json)
+      }, 250)
     },
     { deep: true },
   )
+
+  function applySnapshot(json: string) {
+    let s: Score
+    try {
+      s = JSON.parse(json) as Score
+    } catch (err) {
+      // A corrupted snapshot in the stack would throw uncaught from undo()/
+      // redo() and kill the call. Drop the bad entry and bail.
+      console.warn('chordprog3: undo snapshot was corrupted, skipping —', err)
+      return
+    }
+    restoring = true
+    try {
+      score.title = s.title
+      score.bpm = s.bpm
+      score.timeSignature = s.timeSignature
+      score.rows = s.rows
+      score.pianoRollOpen = s.pianoRollOpen
+      score.pianoRollHeight = s.pianoRollHeight
+      // selection refers to bar indices that may not exist anymore — clear it.
+      selection.anchor = null
+      selection.head = null
+    } finally {
+      // Clear restoring on the next tick so the watch's flush (which still
+      // sees the current state == new snapshot, no-ops anyway) doesn't push
+      // a duplicate.
+      lastSnapshot = json
+      Promise.resolve().then(() => {
+        restoring = false
+      })
+    }
+  }
+
+  function undo() {
+    // Coalesce any pending in-flight snapshot — if the user typed something
+    // 50ms ago and immediately hit cmd-z, we want to step back from THAT
+    // state, not the older lastSnapshot.
+    if (saveTimer !== null) {
+      window.clearTimeout(saveTimer)
+      saveTimer = null
+      const cur = JSON.stringify(score)
+      if (cur !== lastSnapshot) {
+        undoStack.push(lastSnapshot)
+        if (undoStack.length > MAX_HISTORY) undoStack.shift()
+        lastSnapshot = cur
+      }
+    }
+    if (undoStack.length === 0) return
+    const target = undoStack.pop()!
+    redoStack.push(lastSnapshot)
+    applySnapshot(target)
+    flushSave()
+  }
+
+  function redo() {
+    if (saveTimer !== null) {
+      window.clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    if (redoStack.length === 0) return
+    const target = redoStack.pop()!
+    undoStack.push(lastSnapshot)
+    if (undoStack.length > MAX_HISTORY) undoStack.shift()
+    applySnapshot(target)
+    flushSave()
+  }
+
+  const canUndo = computed(() => undoStack.length > 0)
+  const canRedo = computed(() => redoStack.length > 0)
   if (typeof window !== 'undefined') {
-    window.addEventListener('beforeunload', flushSave)
+    window.addEventListener('beforeunload', () => flushSave())
     // mobile / Safari skip beforeunload — flush on visibility change too
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') flushSave()
@@ -276,6 +381,10 @@ export const useScoreStore = defineStore('score', () => {
   }
 
   function setBpm(v: number) {
+    // NaN comparisons always fail, so Math.min(400, Math.max(20, NaN)) yields
+    // NaN — guard explicitly so a bad input doesn't poison transport.bpm.value
+    // (Tone throws on NaN) and cellSeconds (would propagate Infinity downstream).
+    if (!Number.isFinite(v)) return
     score.bpm = Math.max(20, Math.min(400, Math.round(v)))
   }
 
@@ -299,7 +408,13 @@ export const useScoreStore = defineStore('score', () => {
     score.pianoRollOpen = open
   }
   function setPianoRollHeight(px: number) {
-    score.pianoRollHeight = Math.max(120, Math.min(800, Math.round(px)))
+    // 800 is the absolute upper bound, but on shorter viewports leave room
+    // for the top + bottom bars (~140px combined) and a sliver of editor.
+    const viewportMax =
+      typeof window !== 'undefined' && window.innerHeight
+        ? Math.max(120, window.innerHeight - 200)
+        : 800
+    score.pianoRollHeight = Math.max(120, Math.min(800, Math.min(viewportMax, Math.round(px))))
   }
 
   /* --- beat-settings clipboard (yank / paste via y / p shortcuts) --- */
@@ -395,6 +510,15 @@ export const useScoreStore = defineStore('score', () => {
 
   /* --- row / bar layout (insert / append clone the playhead's bar/row) --- */
 
+  /** Any structural row/bar mutation invalidates the (anchor, head) pair —
+   *  bar indices shift, rows shuffle, etc. Match the pattern already used by
+   *  deleteSelection / applySnapshot: drop the selection and let the user
+   *  re-select on the new layout. */
+  function clearSelection() {
+    selection.anchor = null
+    selection.head = null
+  }
+
   /** Insert a fresh bar AT `barIndex`, pushing existing bars down. Clones the bar at that index. */
   function insertBar(rowIndex: number, barIndex: number): number {
     const r = score.rows[rowIndex]
@@ -403,6 +527,7 @@ export const useScoreStore = defineStore('score', () => {
     const tmpl = r.bars[at] ?? r.bars[at - 1]
     const fresh = tmpl ? cloneBarTemplate(tmpl) : makeBar(beatsPerBar.value)
     r.bars.splice(at, 0, fresh)
+    clearSelection()
     return at
   }
 
@@ -414,6 +539,7 @@ export const useScoreStore = defineStore('score', () => {
     const fresh = tmpl ? cloneBarTemplate(tmpl) : makeBar(beatsPerBar.value)
     const at = Math.max(0, Math.min(barIndex + 1, r.bars.length))
     r.bars.splice(at, 0, fresh)
+    clearSelection()
     return at
   }
 
@@ -423,6 +549,7 @@ export const useScoreStore = defineStore('score', () => {
     const tmpl = score.rows[at] ?? score.rows[at - 1]
     const fresh = tmpl ? cloneRowTemplate(tmpl) : makeRow(beatsPerBar.value, 4)
     score.rows.splice(at, 0, fresh)
+    clearSelection()
     return at
   }
 
@@ -432,6 +559,7 @@ export const useScoreStore = defineStore('score', () => {
     const fresh = tmpl ? cloneRowTemplate(tmpl) : makeRow(beatsPerBar.value, 4)
     const at = Math.max(0, Math.min(rowIndex + 1, score.rows.length))
     score.rows.splice(at, 0, fresh)
+    clearSelection()
     return at
   }
 
@@ -446,6 +574,7 @@ export const useScoreStore = defineStore('score', () => {
   function deleteRow(rowIndex: number) {
     if (score.rows.length <= 1) return
     score.rows.splice(rowIndex, 1)
+    clearSelection()
   }
 
   function moveRow(rowIndex: number, delta: number) {
@@ -453,6 +582,7 @@ export const useScoreStore = defineStore('score', () => {
     if (target < 0 || target >= score.rows.length) return
     const [r] = score.rows.splice(rowIndex, 1)
     score.rows.splice(target, 0, r)
+    clearSelection()
   }
 
   function duplicateRow(rowIndex: number) {
@@ -460,6 +590,7 @@ export const useScoreStore = defineStore('score', () => {
     if (!r) return
     const copy = cloneRow(r)
     score.rows.splice(rowIndex + 1, 0, copy)
+    clearSelection()
   }
 
   function deleteBar(rowIndex: number, barIndex: number) {
@@ -470,6 +601,7 @@ export const useScoreStore = defineStore('score', () => {
       return
     }
     r.bars.splice(barIndex, 1)
+    clearSelection()
   }
 
   /** Move a bar to the end of the previous row (== "join" with previous row). */
@@ -480,6 +612,7 @@ export const useScoreStore = defineStore('score', () => {
     if (!prev || !cur) return
     prev.bars.push(...cur.bars)
     score.rows.splice(rowIndex, 1)
+    clearSelection()
   }
 
   /** Split a row into two at the given bar (the bar at barIndex starts the new row). */
@@ -493,6 +626,7 @@ export const useScoreStore = defineStore('score', () => {
     newRow.title = ''
     newRow.key = null
     score.rows.splice(rowIndex + 1, 0, newRow)
+    clearSelection()
   }
 
   function selectionRange(): { startRow: number; startBar: number; endRow: number; endBar: number } | null {
@@ -551,6 +685,16 @@ export const useScoreStore = defineStore('score', () => {
         row.bars.push(makeBar(beatsPerBar.value))
       }
     }
+    // Belt-and-suspenders: never let the score collapse to zero rows / empty
+    // last row. The per-iteration logic above handles single-row cuts, but a
+    // multi-row "select all → cut" path could leave the loop without a last
+    // row to fall back into.
+    if (score.rows.length === 0) {
+      score.rows.push(makeRow(beatsPerBar.value, 4))
+    } else {
+      const last = score.rows[score.rows.length - 1]
+      if (last && last.bars.length === 0) last.bars.push(makeBar(beatsPerBar.value))
+    }
     selection.anchor = null
     selection.head = null
   }
@@ -602,7 +746,8 @@ export const useScoreStore = defineStore('score', () => {
   }
 
   function setTitle(t: string) {
-    score.title = t || 'untitled'
+    // Trim whitespace so a single space doesn't pretend to be a title.
+    score.title = t.trim() || 'untitled'
   }
 
   function reset() {
@@ -658,8 +803,16 @@ export const useScoreStore = defineStore('score', () => {
     setTitle,
     reset,
     selectionRange,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   }
 })
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useScoreStore, import.meta.hot))
+}
 
 function cloneBar(b: Bar): Bar {
   return {

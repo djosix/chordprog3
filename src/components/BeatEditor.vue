@@ -45,8 +45,10 @@ const isPlayhead = computed(
 
 function commitChord() {
   // First normalize the typed text: capitalize the leading note letter so
-  // `cmaj7` parses, and try `b7` → `b7` etc. Then run through tonal.
-  const raw = localChord.value.trim()
+  // `cmaj7` parses, normalize unicode accidentals (♭→b, ♯→#) so chord
+  // names pasted from notation tools survive, then run through tonal.
+  let raw = localChord.value.trim()
+  raw = raw.replace(/♭/g, 'b').replace(/♯/g, '#')
   let attempt = raw
   if (raw.length) {
     attempt = raw[0].toUpperCase() + raw.slice(1)
@@ -55,6 +57,11 @@ function commitChord() {
   }
   const c = parseChord(attempt)
   const canon = c.ok ? c.name : attempt
+  // Skip the store update if nothing actually changed — Enter does
+  // `commitChord(); blur()`, blur fires `commitChord()` again. With this
+  // guard the second call is a no-op instead of a redundant
+  // setBeatChord (which would push a duplicate undo snapshot).
+  if (canon === props.beat.chord && canon === localChord.value) return
   localChord.value = canon
   score.setBeatChord(props.rowIndex, props.barIndex, props.beatIndex, canon)
 }
@@ -111,7 +118,7 @@ function onBlockClick(e: MouseEvent) {
     @click="onBlockClick"
     title="click to move the playhead here"
   >
-    <span class="text-[10px] text-[var(--color-fg-3)] w-3 select-none">{{ beatIndex + 1 }}</span>
+    <span class="text-[10px] text-[var(--color-fg-3)] w-4 select-none">{{ beatIndex + 1 }}</span>
     <input
       :data-chord-input="`${rowIndex}_${barIndex}_${beatIndex}`"
       v-model="localChord"
@@ -119,7 +126,8 @@ function onBlockClick(e: MouseEvent) {
       @blur="onBlur"
       @keydown="onChordKeydown"
       placeholder="—"
-      class="w-24 shrink-0 px-1 py-0.5 min-w-0 text-[13px] tracking-tight cursor-text"
+      aria-label="chord symbol"
+      class="w-28 shrink-0 px-1 py-0.5 min-w-0 text-[13px] tracking-tight cursor-text"
       :class="
         isInvalid
           ? 'text-[var(--color-error)] bg-[color-mix(in_oklab,var(--color-error)_10%,transparent)]'
@@ -138,10 +146,13 @@ function onBlockClick(e: MouseEvent) {
       <Icon name="midi" :size="11" />
       <span>{{ midi.detected[0] }}</span>
     </button>
+    <!-- always render the roman slot so layout doesn't jitter when a chord
+         transitions from parseable ↔ unparseable. Visibility-hidden keeps
+         the width reserved without showing stale text. -->
     <span
-      v-if="roman"
-      class="text-[10px] uppercase tracking-wider text-[var(--color-key)] px-1"
-      :title="`scale degree in ${effectiveKey}`"
-    >{{ roman }}</span>
+      class="text-[10px] uppercase tracking-wider text-[var(--color-key)] px-1 inline-block min-w-[2rem] text-right"
+      :class="roman ? '' : 'invisible'"
+      :title="roman ? `scale degree in ${effectiveKey}` : ''"
+    >{{ roman || '—' }}</span>
   </div>
 </template>

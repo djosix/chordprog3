@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+import { acceptHMRUpdate, defineStore } from 'pinia'
 import { reactive, ref, watch } from 'vue'
 import * as Tone from 'tone'
 import { useScoreStore } from './score'
@@ -106,6 +106,8 @@ export const usePlaybackStore = defineStore('playback', () => {
   let samplerReady = false
   let samplerLoading = false
   const samplerLoadingState = ref(false)
+  // Mirror of samplerReady for the UI (Vue can't track plain `let`s).
+  const samplerReadyState = ref(false)
 
   async function ensureMidi() {
     if (midiAccess) return midiAccess
@@ -139,7 +141,18 @@ export const usePlaybackStore = defineStore('playback', () => {
   async function ensureSampler(): Promise<Tone.Sampler> {
     if (sampler && samplerReady) return sampler
     if (sampler && samplerLoading) {
-      await Tone.loaded()
+      // Concurrent caller during initial load — share the same 15s timeout
+      // so a hung CDN doesn't leave them awaiting forever.
+      let secondaryTimer: number | null = null
+      const t = new Promise<never>((_, rej) => {
+        secondaryTimer = window.setTimeout(() => rej(new Error('sampler load timeout (15s, secondary)')), 15000)
+      })
+      try {
+        await Promise.race([Tone.loaded(), t])
+      } catch { /* primary path will end up logging */ }
+      finally {
+        if (secondaryTimer !== null) window.clearTimeout(secondaryTimer)
+      }
       return sampler
     }
     samplerLoading = true
@@ -171,10 +184,27 @@ export const usePlaybackStore = defineStore('playback', () => {
       baseUrl: 'https://tonejs.github.io/audio/salamander/',
     }).toDestination()
     sampler.volume.value = Tone.gainToDb(output.volume)
-    await Tone.loaded()
-    samplerReady = true
-    samplerLoading = false
-    samplerLoadingState.value = false
+    // Timeout the CDN load so a flaky network doesn't pin the loading state
+    // forever — the user keeps a working app (silent sampler), and MIDI mode
+    // is unaffected. Per-pitch playback guards (`if (sampler && samplerReady)`)
+    // skip when samplerReady is still false.
+    let timer: number | null = null
+    const timeoutP = new Promise<never>((_, rej) => {
+      timer = window.setTimeout(() => rej(new Error('sampler load timeout (15s)')), 15000)
+    })
+    try {
+      await Promise.race([Tone.loaded(), timeoutP])
+      samplerReady = true
+      samplerReadyState.value = true
+    } catch (err) {
+      console.warn('chordprog3: sample piano failed to load —', err)
+      samplerReady = false
+      samplerReadyState.value = false
+    } finally {
+      if (timer !== null) window.clearTimeout(timer)
+      samplerLoading = false
+      samplerLoadingState.value = false
+    }
     return sampler
   }
 
@@ -182,6 +212,71 @@ export const usePlaybackStore = defineStore('playback', () => {
     () => output.volume,
     (v) => {
       if (sampler) sampler.volume.value = Tone.gainToDb(v)
+    },
+  )
+
+  // Keep the playhead pinned to a valid (row, bar, beat) tuple. Bar / row
+  // deletes (manual or via cutSelection) shrink the score and would otherwise
+  // leave playhead.rowIndex pointing past the end, freezing navigation. We
+  // watch the relevant array lengths (encoded as a string so Vue diffs cheaply)
+  // and clamp on any structural change.
+  watch(
+    () => {
+      const rows = score.score.rows
+      const r = rows[playhead.rowIndex]
+      const b = r?.bars[playhead.barIndex]
+      return `${rows.length}|${r?.bars.length ?? -1}|${b?.beats.length ?? -1}`
+    },
+    () => {
+      const rows = score.score.rows
+      if (rows.length === 0) {
+        playhead.rowIndex = 0
+        playhead.barIndex = 0
+        playhead.beatIndex = 0
+        return
+      }
+      if (playhead.rowIndex >= rows.length) playhead.rowIndex = rows.length - 1
+      const r = rows[playhead.rowIndex]
+      if (!r || r.bars.length === 0) {
+        playhead.barIndex = 0
+        playhead.beatIndex = 0
+        return
+      }
+      if (playhead.barIndex >= r.bars.length) playhead.barIndex = r.bars.length - 1
+      const bar = r.bars[playhead.barIndex]
+      if (bar && playhead.beatIndex >= bar.beats.length) {
+        playhead.beatIndex = Math.max(0, bar.beats.length - 1)
+      }
+    },
+  )
+
+  // Live time-signature change while playing — same problem as BPM but
+  // worse: bar lengths and beat-grid resolution shift, so the existing
+  // baked schedule lines up with neither the chord editor nor the audio.
+  // Rebuild via the same pattern.
+  watch(
+    () => `${score.score.timeSignature.numerator}/${score.score.timeSignature.denominator}`,
+    () => {
+      if (!isPlaying.value || rebuilding) return
+      if (loopRebuildTimer !== null) window.clearTimeout(loopRebuildTimer)
+      loopRebuildTimer = window.setTimeout(async () => {
+        loopRebuildTimer = null
+        if (!isPlaying.value || rebuilding) return
+        rebuilding = true
+        try {
+          const t = Tone.getTransport()
+          t.stop()
+          t.cancel()
+          t.position = 0
+          stopPlayheadRaf()
+          stopClockRepoll()
+          panic()
+          isPlaying.value = false
+          await play()
+        } finally {
+          rebuilding = false
+        }
+      }, 80)
     },
   )
 
@@ -362,6 +457,10 @@ export const usePlaybackStore = defineStore('playback', () => {
    * chord that's currently sustaining at that point in the score.
    */
   async function listenChord() {
+    // While the transport is firing the baked schedule, triggering the
+    // chord again would layer audibly on top of the playback (same pitches,
+    // same time). Pause first if you want to hear the chord in isolation.
+    if (isPlaying.value) return
     let chord = ''
     let ri = playhead.rowIndex
     let bi = playhead.barIndex
@@ -472,8 +571,13 @@ export const usePlaybackStore = defineStore('playback', () => {
     starting = true
     try {
       await prepareOutput()
-    } finally {
-      // unlocked after schedule is built; isPlaying covers further reentry
+    } catch (err) {
+      // prepareOutput shouldn't throw on its own (it logs + falls back), but
+      // any unexpected failure here was leaving `starting=true` permanently,
+      // which silently disabled all future play() calls.
+      console.warn('chordprog3: play() prepareOutput failed —', err)
+      starting = false
+      return
     }
 
     const transport = Tone.getTransport()
@@ -863,6 +967,7 @@ export const usePlaybackStore = defineStore('playback', () => {
     output,
     midiOutputs,
     samplerLoadingState,
+    samplerReadyState,
     play,
     pause,
     stop,
@@ -886,3 +991,7 @@ export const usePlaybackStore = defineStore('playback', () => {
     panic,
   }
 })
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(usePlaybackStore, import.meta.hot))
+}
