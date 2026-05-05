@@ -18,7 +18,12 @@
   --color-key: #818cf8;
   --color-playhead: #f472b6;
 
-  --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  /* Inter chosen for chordprog3's small-UI density (10–13px most of the
+     app). Variable-width but with `tnum` tabular nums opt-in so the BPM /
+     position label / beat count still align in columns where it matters.
+     `--font-mono` kept pointing at the same family so existing
+     `var(--font-mono)` references don't need a sweep. */
+  --font-mono: "Inter", system-ui, sans-serif;
   --font-sans: "Inter", system-ui, sans-serif;
 
   --radius: 0px;
@@ -36,10 +41,15 @@ html, body, #app {
 body {
   background: var(--color-bg-0);
   color: var(--color-fg-0);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 12px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
+  /* `cv11` = Inter's "single-storey a", `ss01` straightens uppercase J;
+     these give chord symbols (Cmaj7, F#m7b5) and roman numerals a more
+     technical, less humanist feel. Tabular nums are opt-in per element
+     (BPM input, position label) — leaving body proportional. */
+  font-feature-settings: 'cv11', 'ss01';
 }
 
 input, button, select, textarea {
@@ -54,6 +64,12 @@ input, button, select, textarea {
 
 input:focus-visible {
   background: var(--color-bg-3);
+}
+
+/* Numeric inputs (BPM) get tabular nums so 100 ↔ 200 ↔ 400 don't shift
+   width as the user types. */
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Default placeholder color — fg-2 on bg-0 fails WCAG AA. fg-1 reads

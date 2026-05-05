@@ -25,6 +25,7 @@
 ```
 
 - 暗色系、不要圓角、軟體工程感、英文介面、`*` 強制 `border-radius: 0`
+- 字體：Inter（sans）作為全域字體，配合 `cv11` + `ss01` 的字符變體（單層 a、straight J）讓 chord symbol 看起來有點 technical；數字輸入 / 位置 label 用 `font-variant-numeric: tabular-nums` 對齊
 - 排版方式參考 `design.png`
 
 ## 和弦編輯器
