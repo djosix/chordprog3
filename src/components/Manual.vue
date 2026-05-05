@@ -73,6 +73,11 @@ const sections: Section[] = [
       { keys: ['shift', '→'], desc: 'next bar, same beat-y (wraps to next line\'s first bar)' },
       { keys: ['shift', '↑'], desc: 'previous line, same bar + beat (clamped)' },
       { keys: ['shift', '↓'], desc: 'next line, same bar + beat (clamped)' },
+      { keys: ['alt', '←'], desc: 'jump to the very first beat of the current line' },
+      { keys: ['alt', '→'], desc: 'jump to the very last beat of the current line' },
+      { keys: ['alt', '↑'], desc: 'jump to the first line, same bar + beat (clamped)' },
+      { keys: ['alt', '↓'], desc: 'jump to the last line, same bar + beat (clamped)' },
+      { keys: ['click', 'beat'], desc: 'click anywhere in a beat block (outside the chord input) to move the playhead there' },
     ],
   },
   {
@@ -85,13 +90,14 @@ const sections: Section[] = [
       { keys: ['cmd', 'v'], desc: 'paste — with a selection: insert before the selection start; without one: insert AFTER the playhead bar (park the playhead on the last bar to paste at end-of-row)' },
       { keys: ['cmd', 'shift', 'v'], desc: 'replace the selection with the clipboard (no selection ⇒ same as cmd-v)' },
       { keys: ['delete'], desc: 'delete selected bars' },
-      { keys: ['esc'], desc: 'clear selection (and exit any focused input)' },
+      { keys: ['esc'], desc: 'clear selection, blur any focused input, AND jump the playhead back to the first beat of the first line' },
     ],
   },
   {
     title: 'rows',
     rows: [
-      { keys: ['hover ↵', 'between bars'], desc: 'break the row at that bar (start a new line)' },
+      { keys: ['↵', 'in bar header'], desc: 'break the row at that bar (start a new line). the corner-down-left button in each bar\'s header (visible from bar 2 onward).' },
+      { keys: ['↰', 'in bar 1 header'], desc: 'join with previous line — the corner-up-left button on each line\'s first bar (from line 2 onward) merges this line back into the previous one.' },
       { keys: ['row menu'], desc: 'duplicate, move up/down, insert, delete, join with previous, regenerate notes' },
       { keys: ['+ measure / + row'], desc: 'clones the playhead\'s current measure / row settings (style/voicing/range), with blank chord' },
       { keys: ['key picker'], desc: 'set the key for analysis (roman numerals + chord detection)' },

@@ -15,7 +15,7 @@ const props = defineProps<{
   isLast?: boolean
 }>()
 
-const emit = defineEmits<{ (e: 'break-here'): void }>()
+const emit = defineEmits<{ (e: 'break-here'): void; (e: 'join-prev-row'): void }>()
 
 const score = useScoreStore()
 const playback = usePlaybackStore()
@@ -55,8 +55,11 @@ function selectThis(e?: MouseEvent) {
   score.setSelection({ row: props.rowIndex, bar: props.barIndex })
 }
 
-function jumpHere() {
-  playback.setPlayhead(props.rowIndex, props.barIndex, 0)
+function breakHere() {
+  emit('break-here')
+}
+function joinPrevRow() {
+  emit('join-prev-row')
 }
 </script>
 
@@ -74,14 +77,6 @@ function jumpHere() {
     :data-chord-bar="`${rowIndex}_${barIndex}`"
     @mousedown="onMouseDown"
   >
-    <button
-      v-if="barIndex > 0"
-      class="absolute left-0 top-0 z-20 w-4 h-3 opacity-0 hover:opacity-100 hover:bg-[var(--color-line)] hover:text-[var(--color-accent)] text-[var(--color-fg-3)] flex items-center justify-center"
-      @click.stop="emit('break-here')"
-      title="break row here  ↵"
-    >
-      <Icon name="corner-down-left" :size="11" />
-    </button>
     <div
       class="flex items-center gap-1 px-1.5 py-1 text-[10px] uppercase tracking-wider text-[var(--color-fg-3)] border-b border-[var(--color-line)] bg-[var(--color-bg-1)] cursor-pointer hover:bg-[var(--color-bg-2)]"
       style="min-height: 28px"
@@ -96,11 +91,20 @@ function jumpHere() {
       <span v-if="bar.key" class="text-[var(--color-key)]">{{ bar.key }}</span>
       <div class="flex-1"></div>
       <button
-        class="btn-icon-sm text-[var(--color-fg-3)] hover:text-[var(--color-fg-0)] hover:bg-[var(--color-bg-3)]"
-        title="jump playhead here"
-        @click.stop="jumpHere"
+        v-if="barIndex === 0 && rowIndex > 0"
+        class="btn-icon-sm text-[var(--color-fg-3)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg-3)]"
+        title="join with previous line — un-break this row"
+        @click.stop="joinPrevRow"
       >
-        <Icon name="crosshair" :size="14" />
+        <Icon name="corner-up-left" :size="14" />
+      </button>
+      <button
+        v-if="barIndex > 0"
+        class="btn-icon-sm text-[var(--color-fg-3)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg-3)]"
+        title="break row here — start a new line at this bar"
+        @click.stop="breakHere"
+      >
+        <Icon name="corner-down-left" :size="14" />
       </button>
       <button
         class="btn-icon-sm text-[var(--color-fg-3)] hover:text-[var(--color-error)] hover:bg-[var(--color-bg-3)]"

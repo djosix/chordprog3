@@ -90,15 +90,26 @@ function onBlur() {
   commitChord()
 }
 
+/** Click anywhere on the beat block (other than the input / buttons) → move
+ *  the playhead to this beat. The input is narrower than the block on
+ *  purpose so the user has empty space to click. */
+function onBlockClick(e: MouseEvent) {
+  const t = e.target as HTMLElement | null
+  if (!t) return
+  if (t.tagName === 'INPUT' || t.closest('button')) return
+  playback.setPlayhead(props.rowIndex, props.barIndex, props.beatIndex)
+}
 </script>
 
 <template>
   <div
-    class="border-t border-[var(--color-line)] first:border-t-0 px-1.5 py-1 flex items-center gap-1.5 relative min-h-[28px]"
+    class="border-t border-[var(--color-line)] first:border-t-0 px-1.5 py-1 flex items-center gap-1.5 relative min-h-[28px] cursor-pointer"
     :class="[
       isPlayhead ? 'bg-[color-mix(in_oklab,var(--color-playhead)_18%,transparent)]' : '',
       isFirstOfBar ? '' : 'bg-[color-mix(in_oklab,var(--color-bg-2)_30%,transparent)]',
     ]"
+    @click="onBlockClick"
+    title="click to move the playhead here"
   >
     <span class="text-[10px] text-[var(--color-fg-3)] w-3 select-none">{{ beatIndex + 1 }}</span>
     <input
@@ -108,7 +119,7 @@ function onBlur() {
       @blur="onBlur"
       @keydown="onChordKeydown"
       placeholder="—"
-      class="flex-1 px-1 py-0.5 min-w-0 text-[13px] tracking-tight"
+      class="w-24 shrink-0 px-1 py-0.5 min-w-0 text-[13px] tracking-tight cursor-text"
       :class="
         isInvalid
           ? 'text-[var(--color-error)] bg-[color-mix(in_oklab,var(--color-error)_10%,transparent)]'
@@ -117,6 +128,7 @@ function onBlur() {
             : 'text-[var(--color-fg-3)] hover:bg-[var(--color-bg-3)] focus:bg-[var(--color-bg-3)]'
       "
     />
+    <div class="flex-1"></div>
     <button
       v-if="focused && midi.enabled && midi.detected.length"
       class="px-1 py-0.5 text-[var(--color-accent)] hover:bg-[var(--color-bg-3)] flex items-center gap-1 text-[11px] tracking-tight border border-[var(--color-accent-dim)]"

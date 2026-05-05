@@ -786,6 +786,60 @@ export const usePlaybackStore = defineStore('playback', () => {
     }
   }
 
+  /** Alt+Left: jump to the very first beat of the current row. */
+  function jumpRowStart() {
+    const r = score.score.rows[playhead.rowIndex]
+    if (!r || !r.bars[0]) return
+    playhead.barIndex = 0
+    playhead.beatIndex = 0
+  }
+
+  /** Alt+Right: jump to the very last beat of the current row. */
+  function jumpRowEnd() {
+    const r = score.score.rows[playhead.rowIndex]
+    if (!r || r.bars.length === 0) return
+    const lastBar = r.bars.length - 1
+    const bar = r.bars[lastBar]
+    if (!bar) return
+    playhead.barIndex = lastBar
+    playhead.beatIndex = Math.max(0, bar.beats.length - 1)
+  }
+
+  /** Esc: jump to the very first beat of the very first row. */
+  function jumpToTop() {
+    const r = score.score.rows[0]
+    if (!r || !r.bars[0]) return
+    playhead.rowIndex = 0
+    playhead.barIndex = 0
+    playhead.beatIndex = 0
+  }
+
+  /** Alt+Up: jump to the first row, keeping the same bar + beat (clamped). */
+  function jumpToTopRow() {
+    const r = score.score.rows[0]
+    if (!r || r.bars.length === 0) return
+    const newBar = Math.min(playhead.barIndex, r.bars.length - 1)
+    const bar = r.bars[newBar]
+    if (!bar) return
+    playhead.rowIndex = 0
+    playhead.barIndex = newBar
+    playhead.beatIndex = Math.min(playhead.beatIndex, bar.beats.length - 1)
+  }
+
+  /** Alt+Down: jump to the last row, keeping the same bar + beat (clamped). */
+  function jumpToBottomRow() {
+    const lastRow = score.score.rows.length - 1
+    if (lastRow < 0) return
+    const r = score.score.rows[lastRow]
+    if (!r || r.bars.length === 0) return
+    const newBar = Math.min(playhead.barIndex, r.bars.length - 1)
+    const bar = r.bars[newBar]
+    if (!bar) return
+    playhead.rowIndex = lastRow
+    playhead.barIndex = newBar
+    playhead.beatIndex = Math.min(playhead.beatIndex, bar.beats.length - 1)
+  }
+
   /** Shift+Up/Down: ±1 row, preserving bar+beat (clamped). */
   function stepRow(delta: number) {
     if (!delta) return
@@ -817,6 +871,11 @@ export const usePlaybackStore = defineStore('playback', () => {
     stepBeatVertical,
     stepBar,
     stepRow,
+    jumpRowStart,
+    jumpRowEnd,
+    jumpToTop,
+    jumpToTopRow,
+    jumpToBottomRow,
     setPlayhead,
     previewNotes,
     previewBar,

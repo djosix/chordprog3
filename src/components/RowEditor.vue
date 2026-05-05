@@ -135,6 +135,7 @@ onBeforeUnmount(() => {
           :width="BAR_W"
           :is-last="bi === row.bars.length - 1"
           @break-here="score.breakRowAt(rowIndex, bi)"
+          @join-prev-row="score.joinPrevRow(rowIndex)"
         />
         <button
           class="shrink-0 self-stretch text-[var(--color-fg-3)] hover:text-[var(--color-fg-0)] hover:bg-[var(--color-bg-3)] hover:border-[var(--color-line-strong)] flex items-center justify-center border border-dashed border-[var(--color-line)] mx-2 my-2"

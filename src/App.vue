@@ -18,14 +18,6 @@ function isTypingTarget(t: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA'
 }
 
-/** SELECT is special: it should keep its native Enter/Space (commit / open
- *  popup) but lose arrows/`,/.` to global navigation. */
-function isFocusedSelect(t: EventTarget | null): boolean {
-  if (!t) return false
-  const el = t as HTMLElement
-  return el.tagName === 'SELECT'
-}
-
 /**
  * Run a shortcut and consume the event so it never reaches focused buttons /
  * inputs. We listen in capture phase, so this fires before any descendant.
@@ -71,27 +63,31 @@ function onKey(e: KeyboardEvent) {
     }
   }
 
-  // Esc clears selection always; for typing targets we still also blur.
+  // Esc: clear selection, blur the focused element, and jump the playhead to
+  // the very first beat of the first row. Even when a typing target is
+  // focused — Esc out of it AND park the playhead at the start.
   if (e.code === 'Escape') {
     score.setSelection(null, null)
     ;(document.activeElement as HTMLElement | null)?.blur?.()
+    playback.jumpToTop()
     // do not stopPropagation: components may want their own escape behavior
     return
   }
 
   // Beyond this point: keys are global only when no input/textarea is focused.
+  // <select> is intentionally NOT excluded — global shortcuts (space=play,
+  // arrows=nav, enter=focus chord) win even when a select is focused, so the
+  // user can hit space to play right after picking a value.
   if (typing) return
 
-  // when a <select> is focused, let it keep Enter / Space natively
-  const onSelect = isFocusedSelect(e.target)
-  if (e.code === 'Space' && !meta && !onSelect) {
+  if (e.code === 'Space' && !meta) {
     return consume(e, () => {
       if (playback.isPlaying) playback.pause()
       else playback.play()
     })
   }
   // Enter → focus the chord input at the playhead position
-  if (e.code === 'Enter' && !meta && !onSelect) {
+  if (e.code === 'Enter' && !meta) {
     return consume(e, () => focusPlayheadChordInput())
   }
   if ((e.code === 'Digit0' || e.code === 'Numpad0') && !meta) {
@@ -103,18 +99,22 @@ function onKey(e: KeyboardEvent) {
   // Comma / Period intentionally do nothing (replaced by shift+arrow nav)
 
   if (e.code === 'ArrowLeft' && !meta) {
+    if (e.altKey) return consume(e, () => playback.jumpRowStart())
     if (e.shiftKey) return consume(e, () => playback.stepBar(-1))
     return consume(e, () => playback.stepBeat(-1))
   }
   if (e.code === 'ArrowRight' && !meta) {
+    if (e.altKey) return consume(e, () => playback.jumpRowEnd())
     if (e.shiftKey) return consume(e, () => playback.stepBar(1))
     return consume(e, () => playback.stepBeat(1))
   }
   if (e.code === 'ArrowUp' && !meta) {
+    if (e.altKey) return consume(e, () => playback.jumpToTopRow())
     if (e.shiftKey) return consume(e, () => playback.stepRow(-1))
     return consume(e, () => playback.stepBeatVertical(-1))
   }
   if (e.code === 'ArrowDown' && !meta) {
+    if (e.altKey) return consume(e, () => playback.jumpToBottomRow())
     if (e.shiftKey) return consume(e, () => playback.stepRow(1))
     return consume(e, () => playback.stepBeatVertical(1))
   }

@@ -20,6 +20,7 @@ const props = withDefaults(
       | 'chevron-right'
       | 'chevron-left'
       | 'corner-down-left'
+      | 'corner-up-left'
       | 'rotate-cw'
       | 'crosshair'
       | 'eraser'
@@ -110,6 +111,10 @@ const props = withDefaults(
     <template v-else-if="name === 'corner-down-left'">
       <polyline points="9,10 4,15 9,20" />
       <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+    </template>
+    <template v-else-if="name === 'corner-up-left'">
+      <polyline points="9,14 4,9 9,4" />
+      <path d="M20 20v-7a4 4 0 0 0-4 -4H4" />
     </template>
     <template v-else-if="name === 'rotate-cw'">
       <polyline points="21,4 21,10 15,10" />

@@ -36,7 +36,8 @@
 - 和弦解析失敗就標紅
 - 每個 beat 各自有 style / voicing / range 設定（hover gear icon 開 popover）
 - Layout
-  - 換行：每個 measure 之間 hover 出現 `↵` 按鈕，按下後從這個 measure 開始另起一行
+  - 換行：bar header 上的 `↵`（corner-down-left）按鈕（從 bar 2 開始才會顯示），按下後從這個 measure 開始另起一行
+  - 反換行：每個 line 的第一個 bar header 上有 `↰`（corner-up-left）按鈕（從第二行起才會顯示），按下後把這一 line 接回上一 line
   - row menu (`⋯`) 可以 duplicate / move up·down / insert / delete / join with previous / regenerate all notes
   - 整行的 title 與 description（左邊欄）；optional 的 marker 顯示於 row header
   - 可以選取 N 個 measure（click 點選 + shift-click 延伸），用 cmd-c / cmd-x / cmd-v 剪貼，cmd-shift-v 取代
@@ -72,7 +73,7 @@
 
 ## Navigation 快捷鍵
 
-- 全域以 capture-phase 攔截，焦點在 button / select 時也會生效；INPUT / TEXTAREA 仍可正常輸入文字
+- 全域以 capture-phase 攔截，焦點在 button / `<select>` 時都會被全域捕捉（包含 space / enter；目的是讓 user 用 select 之後可以直接按 space 播放）；INPUT / TEXTAREA 仍可正常輸入文字
 - 播放
   - `space`：play / pause
   - `0`：stop & rewind to start
@@ -89,12 +90,17 @@
   - `↑` / `↓`：往同一 measure 的上 / 下一個 beat；如果在 measure 邊界，跳到鄰近 line 的同一 x 軸 measure 的最後 / 第一個 beat
   - `shift+←` / `shift+→`：往同 line 的前 / 後一個 measure，beat-y 維持
   - `shift+↑` / `shift+↓`：往上 / 下 line 的同一 x 軸 measure，bar+beat 維持（會 clamp 到實際範圍）
+  - `alt+←`：跳到目前 line 的第一個 beat
+  - `alt+→`：跳到目前 line 的最後一個 beat
+  - `alt+↑`：跳到第一個 line，bar+beat 維持（會 clamp）
+  - `alt+↓`：跳到最後一個 line，bar+beat 維持（會 clamp）
   - `,` / `.`：刻意停用
+  - 在 chord block 中任意空白處點擊也可以把 playhead 移到該 beat（input 本身佔位較窄，留出可點空間）
 - Selection / clipboard
   - `cmd-c / x / v`：copy / cut / paste（基於 measure 選取）；只有當有選取時才攔截，否則放行給輸入框
   - `cmd-shift-v`：取代選取
   - `delete / backspace`：刪除選取
-  - `esc`：清除選取並 blur
+  - `esc`：清除選取、blur，並把 playhead 跳回整份 score 的第一個 beat
 
 ## Beat settings strip
 
