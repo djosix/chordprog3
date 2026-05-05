@@ -54,7 +54,18 @@ function selectThis(e?: MouseEvent) {
     score.setSelection(anchor, { row: props.rowIndex, bar: props.barIndex })
     return
   }
-  score.setSelection({ row: props.rowIndex, bar: props.barIndex })
+  // Toggle: if this bar is already the sole selection, clicking again clears it.
+  const a = score.selection.anchor
+  const h = score.selection.head
+  const isOnlyMe =
+    a && h &&
+    a.row === props.rowIndex && a.bar === props.barIndex &&
+    h.row === props.rowIndex && h.bar === props.barIndex
+  if (isOnlyMe) {
+    score.setSelection(null, null)
+  } else {
+    score.setSelection({ row: props.rowIndex, bar: props.barIndex })
+  }
 }
 
 function breakHere() {
@@ -72,13 +83,20 @@ function joinPrevRow() {
       selected
         ? 'bg-[color-mix(in_oklab,var(--color-accent-dim)_22%,var(--color-bg-1))]'
         : '',
-      isPlayhead ? 'ring-1 ring-[var(--color-playhead)] ring-inset' : '',
       isLast ? 'border-r border-[var(--color-line)]' : '',
     ]"
     :style="{ width: width + 'px' }"
     :data-chord-bar="`${rowIndex}_${barIndex}`"
     @mousedown="onMouseDown"
   >
+    <!-- Playhead frame: absolute overlay so it sits ON TOP of the header's
+         solid bg and the beat-divider horizontal borders. ring-inset on the
+         bar container left the top edge hidden behind the header bg and the
+         left/right edges sliced by every beat divider. -->
+    <div
+      v-if="isPlayhead"
+      class="pointer-events-none absolute inset-0 z-20 ring-1 ring-[var(--color-playhead)] ring-inset"
+    ></div>
     <div
       class="flex items-center gap-1 px-1.5 py-1 text-[10px] uppercase tracking-wider text-[var(--color-fg-3)] border-b border-[var(--color-line)] bg-[var(--color-bg-1)] cursor-pointer hover:bg-[var(--color-bg-2)]"
       style="min-height: 28px"
