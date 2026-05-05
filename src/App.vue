@@ -51,11 +51,22 @@ function onKey(e: KeyboardEvent) {
     if (e.code === 'KeyX') return consume(e, () => score.cutSelection())
     if (e.code === 'KeyV') {
       return consume(e, () => {
-        if (e.shiftKey) score.pasteReplace()
-        else {
-          const r = score.selectionRange()
-          if (r) score.pasteAt(r.startRow, r.startBar)
+        const r = score.selectionRange()
+        if (e.shiftKey && r) {
+          score.pasteReplace()
+          return
         }
+        if (r) {
+          score.pasteAt(r.startRow, r.startBar)
+          return
+        }
+        // No selection — paste AFTER the playhead bar. Park the playhead on
+        // the last bar of a row to paste at the end (the original missing
+        // case); pasteAt with barIndex == row.bars.length appends.
+        const ri = playback.playhead.rowIndex
+        const bi = playback.playhead.barIndex
+        const row = score.score.rows[ri]
+        if (row) score.pasteAt(ri, Math.min(bi + 1, row.bars.length))
       })
     }
   }

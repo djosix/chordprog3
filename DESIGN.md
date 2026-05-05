@@ -40,6 +40,7 @@
   - row menu (`⋯`) 可以 duplicate / move up·down / insert / delete / join with previous / regenerate all notes
   - 整行的 title 與 description（左邊欄）；optional 的 marker 顯示於 row header
   - 可以選取 N 個 measure（click 點選 + shift-click 延伸），用 cmd-c / cmd-x / cmd-v 剪貼，cmd-shift-v 取代
+  - 貼上的位置：有選取時 cmd-v 在 selection.start 前插入；沒有選取時 cmd-v 在 playhead 所在 bar 之後插入（park playhead 到最後一個 bar 即可貼到 row 尾端）
   - delete / backspace 刪除選取的 measure
 - 為 row 標調性（key picker），下一個 row 沒設就 inherit；標上調性後 beat 上會顯示對應的羅馬數字級數
 - `+ measure` / `+ row`、以及 `i / a / I / A` 快捷鍵都採「clone playhead 所在的 measure / row」策略：複製 style / voicing / range 等設定，但 chord 與 piano-roll notes 留空。沒有 top-bar defaults 概念。

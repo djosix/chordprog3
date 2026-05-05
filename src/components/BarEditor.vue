@@ -33,6 +33,12 @@ function onMouseDown(e: MouseEvent) {
   if (e.shiftKey) {
     // shift-click extends from the existing anchor; if no anchor yet, treat
     // this click as the anchor so the first shift-click still selects.
+    // preventDefault stops the browser's native "extend text selection"
+    // behavior, which would otherwise highlight everything between the prior
+    // caret and the click point. Also flush any range left over from a
+    // previous text-drag.
+    e.preventDefault()
+    window.getSelection()?.removeAllRanges()
     const anchor = score.selection.anchor ?? { row: props.rowIndex, bar: props.barIndex }
     score.setSelection(anchor, { row: props.rowIndex, bar: props.barIndex })
   }
@@ -40,6 +46,8 @@ function onMouseDown(e: MouseEvent) {
 
 function selectThis(e?: MouseEvent) {
   if (e?.shiftKey) {
+    e.preventDefault()
+    window.getSelection()?.removeAllRanges()
     const anchor = score.selection.anchor ?? { row: props.rowIndex, bar: props.barIndex }
     score.setSelection(anchor, { row: props.rowIndex, bar: props.barIndex })
     return

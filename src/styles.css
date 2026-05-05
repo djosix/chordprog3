@@ -69,6 +69,14 @@ button {
   transition: background-color 90ms ease, color 90ms ease, border-color 90ms ease, opacity 90ms ease;
 }
 
+/* default subtle hover highlight on every interactive button.
+   :where() keeps specificity at 0, so any per-component `hover:bg-...`
+   Tailwind class still wins. Buttons that explicitly opt out of a hover
+   bg can use `hover:bg-transparent`. */
+:where(button:not(:disabled)):hover {
+  background-color: color-mix(in oklab, var(--color-fg-0) 7%, transparent);
+}
+
 button:not(:disabled):active {
   filter: brightness(0.85);
 }

@@ -64,10 +64,40 @@ export const usePlaybackStore = defineStore('playback', () => {
     },
     { deep: true },
   )
+  // Rebuild flags shared between BPM-change and loop-toggle watchers.
+  // Declared up front because the loop watcher fires (lazily, on user
+  // toggle) and references them via closure — keeping declarations near
+  // the watchers keeps the TS-strict ordering happy.
+  let bpmRebuildTimer: number | null = null
+  let loopRebuildTimer: number | null = null
+  let rebuilding = false
   watch(loop, (v) => {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(LOOP_KEY, v ? 'true' : 'false')
     }
+    // Live loop toggle while playing — schedule was baked with the old loop
+    // setting (transport.schedule vs scheduleOnce + transport.loop flag), so
+    // rebuild it. Debounced so rapid o-presses don't thrash.
+    if (!isPlaying.value || rebuilding) return
+    if (loopRebuildTimer !== null) window.clearTimeout(loopRebuildTimer)
+    loopRebuildTimer = window.setTimeout(async () => {
+      loopRebuildTimer = null
+      if (!isPlaying.value || rebuilding) return
+      rebuilding = true
+      try {
+        const t = Tone.getTransport()
+        t.stop()
+        t.cancel()
+        t.position = 0
+        stopPlayheadRaf()
+        stopClockRepoll()
+        panic()
+        isPlaying.value = false
+        await play()
+      } finally {
+        rebuilding = false
+      }
+    }, 50)
   })
 
   const midiOutputs = ref<MidiOutputInfo[]>([])
@@ -156,8 +186,6 @@ export const usePlaybackStore = defineStore('playback', () => {
   )
 
   // Live BPM change while playing — rebuild the (tempo-baked) schedule.
-  let bpmRebuildTimer: number | null = null
-  let rebuilding = false
   watch(
     () => score.score.bpm,
     () => {
@@ -529,37 +557,72 @@ export const usePlaybackStore = defineStore('playback', () => {
     beatTicks.sort((a, b) => a.tSec - b.tSec)
     scheduleBeats = beatTicks
 
+    // Native Tone loop wraps transport.seconds back to 0 at loopEnd so the
+    // rAF playhead binary search and transport.schedule callbacks re-fire
+    // seamlessly — no stop()/play() pause between iterations.
+    //
+    // Guard totalDur > 0: setting loopEnd=0 makes Tone's _processTick check
+    // `ticks >= loopEnd` true at every tick, pinning the transport at tick 0.
+    const safeLoop = !!loop.value && totalDur > 0
+    transport.loop = safeLoop
+    if (safeLoop) {
+      transport.loopStart = 0
+      transport.loopEnd = totalDur
+    }
+
     // Note hits — different scheduling primitives for different outputs:
     //
-    // SAMPLE: schedule via transport.scheduleOnce. Inside the callback we
-    // call sampler.triggerAttackRelease(freq, dur, time) where `time` is the
-    // precise audio time. Web Audio's AudioBufferSourceNode handles the
+    // SAMPLE: transport.schedule re-fires per loop iteration when
+    // transport.loop is on; with loop off, scheduleOnce is sufficient.
+    // Inside the callback we call sampler.triggerAttackRelease(freq, dur,
+    // time) where `time` is the precise audio time. Web Audio handles
     // sample-accurate scheduling on the audio thread, immune to JS jitter.
     //
-    // MIDI: dispatch ALL events upfront via WebMIDI's `output.send(data, ts)`
-    // — the OS-level MIDI scheduler (CoreMIDI / WinMM / ALSA) takes over and
-    // is not affected by JS main-thread jitter. This is critical: the
-    // previous "scheduleOnce → send-with-timestamp" path was causing audible
-    // 忽快忽慢 because the JS callback timing within the lookahead window is
-    // not deterministic.
+    // MIDI: dispatch the first iteration upfront via WebMIDI's
+    // `output.send(data, ts)` so the OS-level MIDI scheduler (CoreMIDI /
+    // WinMM / ALSA) takes over — not affected by JS main-thread jitter. For
+    // looping, scheduleRepeat with startTime=0 fires at each iteration
+    // boundary (initial fire + Tone re-runs scheduleRepeat on every
+    // 'loopStart' event); inside the cb we send the NEXT iteration with a
+    // full totalDur of advance, so the OS gets timestamps well ahead.
     if (output.mode === 'midi') {
       const o = midiOut()
       if (o) {
         try { (o as unknown as { clear?: () => void }).clear?.() } catch { /* not supported */ }
-        // Anchor for MIDI scheduling — performance.now() + small lead. The
-        // audio transport will start at roughly the same wall-clock instant.
-        const lead = 100
-        const startPerf = performance.now() + lead
-        for (const h of hits) {
-          const onAt = startPerf + h.tSec * 1000
-          const offAt = onAt + h.durSec * 1000
-          o.send([0x90, h.pitch & 0x7f, h.vel & 0x7f], onAt)
-          o.send([0x80, h.pitch & 0x7f, 0], offAt)
+        // Anchor MIDI iter 1 to Tone's transport-start audio time, not
+        // performance.now() + arbitrary lead. transport.start() actually fires
+        // at audio time Tone.now() + lookAhead; aligning MIDI to the same
+        // anchor keeps audio + MIDI phase-locked from beat 1.
+        refreshClockOffset()
+        const ctx = Tone.getContext() as unknown as { lookAhead?: number }
+        const lookAheadSec = typeof ctx.lookAhead === 'number' ? ctx.lookAhead : 0.1
+        const startAudio = Tone.now() + lookAheadSec + 0.05
+        const startPerf = audioToPerf(startAudio)
+        const sendIteration = (startMs: number) => {
+          for (const h of hits) {
+            const onAt = startMs + h.tSec * 1000
+            const offAt = onAt + h.durSec * 1000
+            o.send([0x90, h.pitch & 0x7f, h.vel & 0x7f], onAt)
+            o.send([0x80, h.pitch & 0x7f, 0], offAt)
+          }
+        }
+        sendIteration(startPerf)
+        if (safeLoop) {
+          // scheduleRepeat(cb, totalDur, 0) fires at transport.seconds=0
+          // (initial start + every loop-wrap restart). Inside, schedule the
+          // iteration that comes AFTER this one — totalDur of advance.
+          transport.scheduleRepeat((audioTime) => {
+            refreshClockOffset()
+            sendIteration(audioToPerf(audioTime + totalDur))
+          }, totalDur, 0)
         }
       }
     } else {
+      const sched = safeLoop
+        ? transport.schedule.bind(transport)
+        : transport.scheduleOnce.bind(transport)
       for (const h of hits) {
-        transport.scheduleOnce((time) => {
+        sched((time) => {
           if (sampler && samplerReady) {
             sampler.triggerAttackRelease(FREQ_BY_MIDI[h.pitch & 0x7f], h.durSec, time)
           }
@@ -567,25 +630,11 @@ export const usePlaybackStore = defineStore('playback', () => {
       }
     }
 
-    transport.scheduleOnce(() => {
-      if (loop.value) {
+    if (!safeLoop) {
+      transport.scheduleOnce(() => {
         stop()
-        // when looping a selection, restart from selection start; otherwise
-        // restart from the top of the score
-        if (selR) {
-          playhead.rowIndex = selR.startRow
-          playhead.barIndex = selR.startBar
-          playhead.beatIndex = 0
-        } else {
-          playhead.rowIndex = 0
-          playhead.barIndex = 0
-          playhead.beatIndex = 0
-        }
-        play()
-      } else {
-        stop()
-      }
-    }, Math.max(totalDur + 0.1, 0.2))
+      }, Math.max(totalDur + 0.1, 0.2))
+    }
 
     transport.start()
     isPlaying.value = true
