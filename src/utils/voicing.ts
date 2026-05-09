@@ -27,13 +27,51 @@ export function applyVoicing(midi: number[], mode: VoicingMode, bass: string | n
       return dropN(closePosition(sorted), 3)
     case 'spread':
       return spread(sorted)
-    case 'rootless':
-      return sorted.length > 1 ? sorted.slice(1) : sorted
+    case 'rootless': {
+      // Bill Evans-style rootless voicings: A-form (3-5-7-9) or B-form
+      // (7-9-3-5). Strip the root, then build a 3- or 4-note shape from the
+      // chord-tone interval set. Root pc is implied by the bass register.
+      const root = sorted[0]
+      const intervals = sorted.map((n) => (((n - root) % 12) + 12) % 12)
+      const has = (iv: number) => intervals.includes(iv)
+      const noteAt = (iv: number) => sorted.find((n) => (((n - root) % 12) + 12) % 12 === iv)
+      // Pick: 3 (or b3), then either 5 or the 13 (=6), then 7 (or maj7),
+      // then 9 (or b9). If the chord lacks an extension we fall back to
+      // chord-tone substitutes (5 if no 13; 6 if no 9; etc.).
+      const third = noteAt(4) ?? noteAt(3) ?? noteAt(5) // 3 / b3 / sus4
+      const seventh = noteAt(11) ?? noteAt(10) ?? noteAt(9) // maj7 / b7 / 6
+      const ninth = noteAt(2) ?? noteAt(1) ?? noteAt(3) // 9 / b9 / b3 (last-resort)
+      const sixOrFive = noteAt(9) ?? noteAt(7) ?? noteAt(6) ?? noteAt(8) // 13/5/b5/#5
+      const picks = [third, sixOrFive, seventh, ninth].filter(
+        (n): n is number => n !== undefined,
+      )
+      // Deduplicate by pitch class so we don't double a note.
+      const seen = new Set<number>()
+      const uniq: number[] = []
+      for (const n of picks) {
+        const pc = ((n % 12) + 12) % 12
+        if (seen.has(pc)) continue
+        seen.add(pc)
+        uniq.push(n)
+      }
+      // Sort ascending and re-stack within an octave (close-position the
+      // result so the voicing sits as a tight 3-/4-note shape).
+      const stacked = closePosition(uniq.sort((a, b) => a - b))
+      void has // silence unused warning if has() trimmed by tree-shaker
+      return stacked.length ? stacked : sorted.slice(1)
+    }
     case 'shell':
-      // root + 3rd or 7th, simplified: keep first, last, and 3rd if present
-      if (sorted.length >= 4) return [sorted[0], sorted[1], sorted[3]]
-      if (sorted.length === 3) return [sorted[0], sorted[2]]
-      return sorted
+      // root + 3rd + 7th — the canonical jazz shell. For triads (no 7th)
+      // fall back to root + 3rd.
+      {
+        const root = sorted[0]
+        const noteAt = (iv: number) => sorted.find((n) => (((n - root) % 12) + 12) % 12 === iv)
+        const third = noteAt(4) ?? noteAt(3) ?? noteAt(5)
+        const seventh = noteAt(11) ?? noteAt(10)
+        if (seventh !== undefined && third !== undefined) return [root, third, seventh]
+        if (third !== undefined) return [root, third]
+        return sorted
+      }
     case 'power': {
       // root + the chord's actual fifth + octave. For diminished chords the
       // "fifth" is 6 semitones (b5); for augmented it's 8 (#5). Find whichever
@@ -61,15 +99,14 @@ export function applyVoicing(midi: number[], mode: VoicingMode, bass: string | n
       return [root, ...upper]
     }
     case 'wide': {
-      // each successive note at least an octave above the previous
+      // ONE octave gap between root and the rest, then close-position above.
+      // The previous "every interval ≥ 12" stacked all extensions an octave
+      // each, blowing a 7-note 13th chord across 7 octaves — nothing a
+      // human plays. This is the "open-spread" voicing actual pianists use.
       if (sorted.length < 2) return sorted
-      const out = [sorted[0]]
-      for (let i = 1; i < sorted.length; i++) {
-        let n = sorted[i]
-        while (n - out[out.length - 1] < 12) n += 12
-        out.push(n)
-      }
-      return out
+      const root = sorted[0]
+      const upper = closePosition(sorted.slice(1)).map((n) => (n - root < 12 ? n + 12 : n))
+      return [root, ...upper]
     }
     case 'quartal': {
       // True quartal: stack perfect 4ths (5 semitones) starting from the

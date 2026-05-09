@@ -150,9 +150,19 @@ select {
   transition: background-color 90ms ease;
 }
 
-/* delete-mode cursor: a red circled X. SVG is URL-encoded so it can sit in CSS. */
+/* Piano-roll mode cursors. Monochrome (fg-0 stroke), no fill, so they read
+   as utilitarian indicators rather than colored alerts. */
+
+/* delete mode: a plain X */
 .cursor-delete {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 22 22'%3E%3Ccircle cx='11' cy='11' r='9' fill='%2317181b' stroke='%23f87171' stroke-width='1.6'/%3E%3Cline x1='6.5' y1='6.5' x2='15.5' y2='15.5' stroke='%23f87171' stroke-width='2' stroke-linecap='square'/%3E%3Cline x1='15.5' y1='6.5' x2='6.5' y2='15.5' stroke='%23f87171' stroke-width='2' stroke-linecap='square'/%3E%3C/svg%3E") 11 11, not-allowed;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Cline x1='4' y1='4' x2='16' y2='16' stroke='%23e7e7ea' stroke-width='2' stroke-linecap='square'/%3E%3Cline x1='16' y1='4' x2='4' y2='16' stroke='%23e7e7ea' stroke-width='2' stroke-linecap='square'/%3E%3C/svg%3E") 10 10, not-allowed;
+}
+
+/* draw mode: a pencil/pen tip pointing at the hot-spot.
+   Path: tip at (3,19) — top of the angled body up to (17,5)/(19,7),
+   then back down to (5,21). Hot-spot 4,20 sits at the visible tip. */
+.cursor-pen {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 22 22'%3E%3Cpath d='M3 19 L7 15 L17 5 L19 7 L9 17 L5 21 Z' fill='none' stroke='%23e7e7ea' stroke-width='1.6' stroke-linejoin='miter'/%3E%3Cline x1='14' y1='8' x2='16' y2='10' stroke='%23e7e7ea' stroke-width='1.6'/%3E%3C/svg%3E") 4 20, crosshair;
 }
 
 /* shared icon-button hit target so we can mash buttons easily with a mouse */

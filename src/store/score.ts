@@ -12,16 +12,28 @@ import type {
 } from '@/types'
 import { uid } from '@/utils/id'
 import { cellsPerBar, cellsPerBeat, notesFromBar, overlapsExistingNote } from '@/utils/cells'
+import { presetByName, rollDicePreset } from '@/utils/presets'
 
-const STORAGE_KEY = 'chordprog3:score:v5'
+// Storage version bumped: v5 had a single `style` enum per beat; v6 splits
+// rhythm into shape/density/syncopation/voices so the renderer can place
+// any subset of the voicing on any subdivision. migrateBar maps v5 →v6.
+const STORAGE_KEY = 'chordprog3:score:v6'
+const LEGACY_KEYS = ['chordprog3:score:v5']
 
 const HARD_DEFAULTS: BeatSettings = {
-  // tasteful default: a sustained drop-2 voicing centered around middle C
-  // sounds more pianistic than the older close+block out-of-the-box.
-  style: 'block',
-  voicing: 'drop2',
-  rangeCenter: 64, // around E4
-  rangeSpread: 18, // ±1.5 octaves
+  // "Most-pleasing-on-first-load": close-position voicing (no jazz
+  // flavour bias), centered on middle C with a tighter ~2-octave window
+  // so chords sound where ears expect them. shape=sustain + density=0.2
+  // produces a gentle pad — ONE held chord per change, full voicing.
+  // voices=1.0 fires the whole stack, so a casual user clicks play and
+  // hears a complete chord rather than a guide-tone shell.
+  voicing: 'close',
+  rangeCenter: 60,
+  rangeSpread: 12,
+  shape: 'sustain',
+  density: 0.2,
+  syncopation: 0.05,
+  voices: 1.0,
 }
 
 const PIANO_ROLL_DEFAULT_HEIGHT = 320
@@ -29,14 +41,17 @@ const PIANO_ROLL_DEFAULT_HEIGHT = 320
 function defaultBeat(d: BeatSettings = HARD_DEFAULTS): Beat {
   return {
     chord: '',
-    style: d.style,
     voicing: d.voicing,
     rangeCenter: d.rangeCenter,
     rangeSpread: d.rangeSpread,
+    shape: d.shape,
+    density: d.density,
+    syncopation: d.syncopation,
+    voices: d.voices,
   }
 }
 
-/** Clone a bar's settings (style/voicing/range) into a fresh blank bar — no chord, no notes. */
+/** Clone a bar's settings (voicing / range / rhythm knobs) into a fresh blank bar — no chord, no notes. */
 function cloneBarTemplate(b: Bar): Bar {
   return {
     id: uid('bar'),
@@ -44,10 +59,13 @@ function cloneBarTemplate(b: Bar): Bar {
     notes: [],
     beats: b.beats.map((bt) => ({
       chord: '',
-      style: bt.style,
       voicing: bt.voicing,
       rangeCenter: bt.rangeCenter,
       rangeSpread: bt.rangeSpread,
+      shape: bt.shape,
+      density: bt.density,
+      syncopation: bt.syncopation,
+      voices: bt.voices,
     })),
   }
 }
@@ -127,6 +145,38 @@ function migrateRow(row: any, ts: TimeSignature): Row {
   return r
 }
 
+/**
+ * Translate the v5 single-axis `style` enum into a v6 (shape, density,
+ * syncopation, voices) tuple. Each row is the agent-research's
+ * recommended migration table.
+ */
+function styleToShape(style: string | undefined): {
+  shape: Beat['shape']
+  density: number
+  syncopation: number
+  voices: number
+} {
+  switch (style) {
+    case 'block':       return { shape: 'sustain',    density: 0.0,  syncopation: 0.0, voices: 1.0 }
+    case 'sustain':     return { shape: 'sustain',    density: 0.0,  syncopation: 0.0, voices: 1.0 }
+    case 'arp-up':      return { shape: 'arp-up',     density: 0.6,  syncopation: 0.0, voices: 0.25 }
+    case 'arp-down':    return { shape: 'arp-down',   density: 0.6,  syncopation: 0.0, voices: 0.25 }
+    case 'arp-up-down': return { shape: 'arp-updown', density: 0.6,  syncopation: 0.0, voices: 0.25 }
+    case 'alberti':     return { shape: 'alberti',    density: 0.55, syncopation: 0.0, voices: 0.3 }
+    case 'bossa':       return { shape: 'clave',      density: 0.5,  syncopation: 0.4, voices: 0.7 }
+    case 'waltz':       return { shape: 'bass-chord', density: 0.45, syncopation: 0.0, voices: 0.7 }
+    case 'bass-chord':  return { shape: 'bass-chord', density: 0.5,  syncopation: 0.2, voices: 0.7 }
+    case 'reggae':      return { shape: 'charleston', density: 0.5,  syncopation: 1.0, voices: 0.7 }
+    case 'rest':        return { shape: 'sustain',    density: 0.0,  syncopation: 0.0, voices: 0.0 }
+    default:            return {
+      shape: HARD_DEFAULTS.shape,
+      density: HARD_DEFAULTS.density,
+      syncopation: HARD_DEFAULTS.syncopation,
+      voices: HARD_DEFAULTS.voices,
+    }
+  }
+}
+
 function migrateBar(bar: any, ts: TimeSignature): Bar {
   const beats: Beat[] = []
   for (let i = 0; i < ts.numerator; i++) {
@@ -144,12 +194,27 @@ function migrateBar(bar: any, ts: TimeSignature): Bar {
       center = HARD_DEFAULTS.rangeCenter
       spread = HARD_DEFAULTS.rangeSpread
     }
+    // Prefer v6 fields if already present; otherwise translate v5 `style`.
+    const fromStyle = styleToShape(typeof src.style === 'string' ? src.style : undefined)
+    const shape: Beat['shape'] = typeof src.shape === 'string' ? src.shape as Beat['shape'] : fromStyle.shape
+    const density = typeof src.density === 'number' && Number.isFinite(src.density)
+      ? Math.max(0, Math.min(1, src.density))
+      : fromStyle.density
+    const syncopation = typeof src.syncopation === 'number' && Number.isFinite(src.syncopation)
+      ? Math.max(0, Math.min(1, src.syncopation))
+      : fromStyle.syncopation
+    const voices = typeof src.voices === 'number' && Number.isFinite(src.voices)
+      ? Math.max(0, Math.min(1, src.voices))
+      : fromStyle.voices
     beats.push({
       chord: src.chord ?? '',
-      style: src.style ?? 'block',
       voicing: src.voicing ?? 'close',
       rangeCenter: center,
       rangeSpread: spread,
+      shape,
+      density,
+      syncopation,
+      voices,
     })
   }
   let notes: PianoRollNote[] = Array.isArray(bar.notes)
@@ -166,14 +231,25 @@ function migrateBar(bar: any, ts: TimeSignature): Bar {
     notes,
     key: bar.key ?? null,
   }
-  if (out.notes.length === 0) out.notes = notesFromBar(out, ts)
+  // Always re-generate notes after a v5→v6 migration because the new engine
+  // produces different rhythms; preserving stale notes would mismatch what
+  // the user sees in the strip.
+  out.notes = notesFromBar(out, ts)
   return out
 }
 
 function loadScore(): Score {
   if (typeof localStorage === 'undefined') return defaultScore()
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    let raw = localStorage.getItem(STORAGE_KEY)
+    // Fall back to legacy keys so v5 users don't lose their work on the
+    // first launch after the v6 schema bump.
+    if (!raw) {
+      for (const k of LEGACY_KEYS) {
+        const legacy = localStorage.getItem(k)
+        if (legacy) { raw = legacy; break }
+      }
+    }
     if (!raw) return defaultScore()
     const parsed = JSON.parse(raw)
     if (!parsed.rows || !Array.isArray(parsed.rows)) return defaultScore()
@@ -299,6 +375,9 @@ export const useScoreStore = defineStore('score', () => {
       // selection refers to bar indices that may not exist anymore — clear it.
       selection.anchor = null
       selection.head = null
+      // Same for piano-roll note selection: ids reference (pitch, startCell)
+      // tuples that the snapshot may have moved or removed.
+      if (selectedNoteIds.value.size) selectedNoteIds.value = new Set()
     } finally {
       // Clear restoring on the next tick so the watch's flush (which still
       // sees the current state == new snapshot, no-ops anyway) doesn't push
@@ -424,16 +503,41 @@ export const useScoreStore = defineStore('score', () => {
     const beat = score.rows[rowIndex]?.bars[barIndex]?.beats[beatIndex]
     if (!beat) return
     beatClipboard.value = {
-      style: beat.style,
       voicing: beat.voicing,
       rangeCenter: beat.rangeCenter,
       rangeSpread: beat.rangeSpread,
+      shape: beat.shape,
+      density: beat.density,
+      syncopation: beat.syncopation,
+      voices: beat.voices,
     }
   }
 
   function pasteBeat(rowIndex: number, barIndex: number, beatIndex: number) {
     if (!beatClipboard.value) return
     updateBeat(rowIndex, barIndex, beatIndex, { ...beatClipboard.value })
+  }
+
+  /**
+   * Roll a tasteful preset onto a beat (the "🎲 dice" action). Uses a
+   * weighted sample from a curated table — heavy bias toward "pop ballad"
+   * and "jazz comp", soft bias by chord type — with ±10% jitter on the
+   * continuous knobs so consecutive rolls feel different. See utils/presets.ts.
+   */
+  function rollPresetForBeat(rowIndex: number, barIndex: number, beatIndex: number) {
+    const beat = score.rows[rowIndex]?.bars[barIndex]?.beats[beatIndex]
+    if (!beat) return
+    const sampled = rollDicePreset(beat.chord || null)
+    updateBeat(rowIndex, barIndex, beatIndex, sampled)
+  }
+
+  /** Apply a named preset (no jitter) — used by a future preset dropdown. */
+  function applyPresetByName(rowIndex: number, barIndex: number, beatIndex: number, name: string) {
+    const p = presetByName(name)
+    if (!p) return
+    const { name: _n, description: _d, weight: _w, ...settings } = p
+    void _n; void _d; void _w
+    updateBeat(rowIndex, barIndex, beatIndex, settings)
   }
 
   function setBeatChord(rowIndex: number, barIndex: number, beatIndex: number, chord: string) {
@@ -452,16 +556,42 @@ export const useScoreStore = defineStore('score', () => {
   }
 
   /** Regenerate ALL notes for a bar (clears + rebuilds from chords). */
+  /** Drop any selected-note ids whose (pitch, startCell) tuple no longer
+   *  exists in the given bar. Called from regenerate / clear paths so the
+   *  selection set never holds ghost ids that won't render. */
+  function pruneNoteSelectionForBar(rowIndex: number, barIndex: number) {
+    if (selectedNoteIds.value.size === 0) return
+    const bar = score.rows[rowIndex]?.bars[barIndex]
+    if (!bar) return
+    const prefix = `${rowIndex}_${barIndex}_`
+    const next = new Set<string>()
+    for (const id of selectedNoteIds.value) {
+      if (!id.startsWith(prefix)) {
+        next.add(id) // belongs to a different bar — preserve
+        continue
+      }
+      const [, , pitch, startCell] = id.split('_').map(Number)
+      if (bar.notes.some((n) => n.pitch === pitch && n.startCell === startCell)) {
+        next.add(id)
+      }
+    }
+    if (next.size !== selectedNoteIds.value.size) selectedNoteIds.value = next
+  }
+
   function regenerateBar(rowIndex: number, barIndex: number) {
     const bar = score.rows[rowIndex]?.bars[barIndex]
     if (!bar) return
     bar.notes = notesFromBar(bar, score.timeSignature)
+    pruneNoteSelectionForBar(rowIndex, barIndex)
   }
 
   function regenerateRow(rowIndex: number) {
     const r = score.rows[rowIndex]
     if (!r) return
-    for (const b of r.bars) b.notes = notesFromBar(b, score.timeSignature)
+    for (let bi = 0; bi < r.bars.length; bi++) {
+      r.bars[bi].notes = notesFromBar(r.bars[bi], score.timeSignature)
+      pruneNoteSelectionForBar(rowIndex, bi)
+    }
   }
 
   /* --- piano-roll note ops (per bar) --- */
@@ -502,10 +632,104 @@ export const useScoreStore = defineStore('score', () => {
     note.duration = newDur
   }
 
+  /**
+   * Move a note to a new (pitch, startCell) within the same bar. Clamped to
+   * the bar's cell range and to a legal MIDI pitch; if the destination
+   * overlaps another note on the same pitch the move is silently rejected.
+   */
+  function moveNote(
+    rowIndex: number,
+    barIndex: number,
+    noteIndex: number,
+    newPitch: number,
+    newStartCell: number,
+  ) {
+    const bar = score.rows[rowIndex]?.bars[barIndex]
+    if (!bar) return
+    const note = bar.notes[noteIndex]
+    if (!note) return
+    const cpBar = cellsPerBarNow.value
+    const clampedPitch = Math.max(0, Math.min(127, Math.round(newPitch)))
+    const clampedStart = Math.max(0, Math.min(cpBar - note.duration, Math.round(newStartCell)))
+    if (clampedPitch === note.pitch && clampedStart === note.startCell) return
+    if (overlapsExistingNote(bar.notes, clampedPitch, clampedStart, note.duration, noteIndex)) return
+    note.pitch = clampedPitch
+    note.startCell = clampedStart
+  }
+
+  /**
+   * Resize a note from its LEFT edge — moves the start cell while keeping
+   * the right edge fixed. Symmetric to resizeNote (which keeps the left edge
+   * fixed and moves the right). Will refuse to overlap a same-pitch note.
+   */
+  function resizeNoteFromLeft(
+    rowIndex: number,
+    barIndex: number,
+    noteIndex: number,
+    newStartCell: number,
+  ) {
+    const bar = score.rows[rowIndex]?.bars[barIndex]
+    if (!bar) return
+    const note = bar.notes[noteIndex]
+    if (!note) return
+    const oldEnd = note.startCell + note.duration
+    let target = Math.max(0, Math.min(oldEnd - 1, Math.round(newStartCell)))
+    // Walk forward past any same-pitch note that would be overlapped.
+    while (
+      target < oldEnd - 1 &&
+      overlapsExistingNote(bar.notes, note.pitch, target, oldEnd - target, noteIndex)
+    ) {
+      target++
+    }
+    if (overlapsExistingNote(bar.notes, note.pitch, target, oldEnd - target, noteIndex)) return
+    note.startCell = target
+    note.duration = oldEnd - target
+  }
+
+  /* --- piano-roll note selection (multi-select state, used by PianoRoll
+   *     for marquee / shift-click and by App.vue's backspace handler) --- */
+  const selectedNoteIds = ref<Set<string>>(new Set())
+
+  function setNoteSelection(ids: Iterable<string>) {
+    selectedNoteIds.value = new Set(ids)
+  }
+  function clearNoteSelection() {
+    if (selectedNoteIds.value.size) selectedNoteIds.value = new Set()
+  }
+  /** Delete every currently-selected note (keys are "ri_bi_pitch_startCell"). */
+  function deleteSelectedNotes() {
+    if (selectedNoteIds.value.size === 0) return
+    // Group by (row, bar) so we can splice indices in descending order per
+    // bar without invalidating earlier indices.
+    const byBar = new Map<string, number[]>()
+    for (const id of selectedNoteIds.value) {
+      const parts = id.split('_').map(Number)
+      if (parts.length < 4) continue
+      const [ri, bi, pitch, startCell] = parts
+      const bar = score.rows[ri]?.bars[bi]
+      if (!bar) continue
+      const idx = bar.notes.findIndex((n) => n.pitch === pitch && n.startCell === startCell)
+      if (idx < 0) continue
+      const k = `${ri}_${bi}`
+      const list = byBar.get(k) ?? []
+      list.push(idx)
+      byBar.set(k, list)
+    }
+    for (const [k, indices] of byBar) {
+      const [ri, bi] = k.split('_').map(Number)
+      const bar = score.rows[ri]?.bars[bi]
+      if (!bar) continue
+      indices.sort((a, b) => b - a)
+      for (const idx of indices) bar.notes.splice(idx, 1)
+    }
+    selectedNoteIds.value = new Set()
+  }
+
   function clearBarNotes(rowIndex: number, barIndex: number) {
     const bar = score.rows[rowIndex]?.bars[barIndex]
     if (!bar) return
     bar.notes = []
+    pruneNoteSelectionForBar(rowIndex, barIndex)
   }
 
   /* --- row / bar layout (insert / append clone the playhead's bar/row) --- */
@@ -772,6 +996,8 @@ export const useScoreStore = defineStore('score', () => {
     beatClipboard,
     yankBeat,
     pasteBeat,
+    rollPresetForBeat,
+    applyPresetByName,
     setBeatChord,
     updateBeat,
     regenerateBar,
@@ -779,7 +1005,13 @@ export const useScoreStore = defineStore('score', () => {
     addNote,
     removeNote,
     resizeNote,
+    resizeNoteFromLeft,
+    moveNote,
     clearBarNotes,
+    selectedNoteIds,
+    setNoteSelection,
+    clearNoteSelection,
+    deleteSelectedNotes,
     insertBar,
     appendBar,
     insertRow,

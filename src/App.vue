@@ -139,8 +139,13 @@ function onKey(e: KeyboardEvent) {
     if (e.shiftKey) return consume(e, () => playback.stepRow(1))
     return consume(e, () => playback.stepBeatVertical(1))
   }
-  if ((e.code === 'Backspace' || e.code === 'Delete') && score.selection.anchor) {
-    return consume(e, () => score.deleteSelection())
+  if ((e.code === 'Backspace' || e.code === 'Delete') && !typing) {
+    if (score.selection.anchor) {
+      return consume(e, () => score.deleteSelection())
+    }
+    if (score.selectedNoteIds.size > 0) {
+      return consume(e, () => score.deleteSelectedNotes())
+    }
   }
   // i / a (lowercase) — measure insert / append at the playhead's bar
   // I / A (shift)     — row insert / append at the playhead's row
@@ -180,10 +185,16 @@ function onKey(e: KeyboardEvent) {
   if (e.code === 'KeyO' && !meta && !e.shiftKey) {
     return consume(e, () => (playback.loop = !playback.loop))
   }
-  // suppress browser cmd+a (select-all-page-text), cmd+f (find), cmd+s
-  // (save page) when not typing — these would otherwise hijack the score-
-  // editing flow with surprise browser dialogs / page selections.
-  if (meta && (e.code === 'KeyA' || e.code === 'KeyF' || e.code === 'KeyS') && !typing) {
+  // suppress browser cmd+a (select-all-page-text), cmd+d (bookmark page),
+  // cmd+f (find), cmd+s (save page) when not typing — these would otherwise
+  // hijack the score-editing flow with surprise dialogs / page selections.
+  // cmd+d is especially important because `d` alone is the piano-roll
+  // delete-mode modifier; we don't want a stray cmd+d to pop a bookmark.
+  if (
+    meta &&
+    (e.code === 'KeyA' || e.code === 'KeyD' || e.code === 'KeyF' || e.code === 'KeyS') &&
+    !typing
+  ) {
     return consume(e, () => {})
   }
   // y / p — yank / paste beat settings (style, voicing, range)
@@ -197,6 +208,13 @@ function onKey(e: KeyboardEvent) {
     return consume(e, () => {
       const { rowIndex, barIndex, beatIndex } = playback.playhead
       score.pasteBeat(rowIndex, barIndex, beatIndex)
+    })
+  }
+  // r — roll a tasteful preset onto the playhead beat (the dice action)
+  if (e.code === 'KeyR' && !meta && !e.shiftKey) {
+    return consume(e, () => {
+      const { rowIndex, barIndex, beatIndex } = playback.playhead
+      score.rollPresetForBeat(rowIndex, barIndex, beatIndex)
     })
   }
 }

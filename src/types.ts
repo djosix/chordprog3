@@ -1,19 +1,31 @@
-export type AccompanimentStyle =
-  | 'block'
+/**
+ * Rhythmic *shape* of accompaniment — the "feel" / cell template the
+ * generator uses. Density / syncopation / voices knobs operate on top of
+ * the shape's canonical hit list (see utils/cells.ts).
+ *
+ * Replaces the old per-beat `AccompanimentStyle` enum, which conflated
+ * rhythm and polyphony into a single dimension and forced single-note
+ * arpeggios for the arp variants — meaning a 7-note chord like C13 could
+ * never be fully heard.
+ */
+export type RhythmShape =
+  /** one held event over the whole span (block / pad) */
+  | 'sustain'
+  /** even subdivisions: 8th-note pulse */
+  | 'pulse'
+  /** root on 1+3, chord on 2+4 + offbeats (stride / pop ballad / waltz) */
+  | 'bass-chord'
   | 'arp-up'
   | 'arp-down'
-  | 'arp-up-down'
+  | 'arp-updown'
+  /** classical low-high-mid-high cycle */
   | 'alberti'
-  | 'sustain'
-  | 'rest'
-  /** root on beat 1, chord on beats 2-4 (bossa-feel comping) */
-  | 'bossa'
-  /** root on 1, chord on 2 and 3 (oom-pah-pah for triple meter) */
-  | 'waltz'
-  /** alternating bass + chord (pop ballad / strum) */
-  | 'bass-chord'
-  /** chord on the off-beats (reggae upbeat) */
-  | 'reggae'
+  /** the universal pop/jazz cell: 1, &-of-2, 4 */
+  | 'charleston'
+  /** dotted-quarter pulse: 1, &-2, 4 */
+  | 'syncopated'
+  /** 3-2 son clave (bossa / latin) */
+  | 'clave'
 
 export type VoicingMode =
   | 'close'
@@ -36,14 +48,20 @@ export type VoicingMode =
 export interface Beat {
   /** chord symbol like "Cmaj7", "G/B", or "" for none */
   chord: string
-  /** accompaniment / arpeggio pattern */
-  style: AccompanimentStyle
-  /** voicing mode */
+  /** voicing mode (which chord-tones / inversion / spacing) */
   voicing: VoicingMode
   /** center pitch (MIDI) of the voicing range */
   rangeCenter: number
   /** half-width of the voicing range, in semitones */
   rangeSpread: number
+  /** rhythmic cell — the *shape* of the accompaniment */
+  shape: RhythmShape
+  /** 0..1: how many of the shape's canonical hits actually fire */
+  density: number
+  /** 0..1: probability of pushing a strong-beat hit onto its &-of (off-beat) */
+  syncopation: number
+  /** 0..1: how many voicing-notes fire on each chord stab; 0 = single line, 1 = full stack */
+  voices: number
 }
 
 /**
@@ -85,10 +103,13 @@ export interface TimeSignature {
 
 /** Editable subset of a Beat used for the y/p settings clipboard. */
 export interface BeatSettings {
-  style: AccompanimentStyle
   voicing: VoicingMode
   rangeCenter: number
   rangeSpread: number
+  shape: RhythmShape
+  density: number
+  syncopation: number
+  voices: number
 }
 
 export interface Score {

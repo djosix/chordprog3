@@ -36,7 +36,7 @@
 - 每 measure 內每一拍（beat）都有自己的和弦輸入；一個 4/4 measure 最多 4 個和弦輸入
 - 和弦解析失敗就標紅
 - chord input 的 commit 階段會把 Unicode `♭` / `♯` 自動轉成 ASCII `b` / `#`，所以從樂譜軟體貼過來的和弦也能解析
-- 每個 beat 各自有 style / voicing / range 設定（hover gear icon 開 popover）
+- 每個 beat 各自有「voicing / range / 節奏型」設定（在 piano-roll header 的 strip 上編輯，自動跟隨 playhead）
 - Layout
   - 換行：bar header 上的 `↵`（corner-down-left）按鈕（從 bar 2 開始才會顯示），按下後從這個 measure 開始另起一行
   - 反換行：每個 line 的第一個 bar header 上有 `↰`（corner-up-left）按鈕（從第二行起才會顯示），按下後把這一 line 接回上一 line
@@ -46,15 +46,21 @@
   - 貼上的位置：有選取時 cmd-v 在 selection.start 前插入；沒有選取時 cmd-v 在 playhead 所在 bar 之後插入（park playhead 到最後一個 bar 即可貼到 row 尾端）
   - delete / backspace 刪除選取的 measure
 - 為 row 標調性（key picker），下一個 row 沒設就 inherit；標上調性後 beat 上會顯示對應的羅馬數字級數
-- `+ measure` / `+ row`、以及 `i / a / I / A` 快捷鍵都採「clone playhead 所在的 measure / row」策略：複製 style / voicing / range 等設定，但 chord 與 piano-roll notes 留空。沒有 top-bar defaults 概念。
+- `+ measure` / `+ row`、以及 `i / a / I / A` 快捷鍵都採「clone playhead 所在的 measure / row」策略：複製 voicing / range / shape / density / syncopation / voices 等設定，但 chord 與 piano-roll notes 留空。沒有 top-bar defaults 概念。
 - 每個 beat 的 range 用 **center + spread** 表達：`rangeCenter`（MIDI）+ `rangeSpread`（半徑、單位 semitone）。clamp 範圍是 `[center − spread, center + spread]`
 
-## 和弦延續規則
+## 伴奏生成（取代舊的 style enum）
 
-如果一個 measure 裡只有第一個 beat 有和弦，後面的 beat 留空，那這個和弦會延續到下一個有和弦的 beat 為止（或者 measure 結束）。產生的 piano roll note 也跟著延續：
+每個 beat 把節奏拆成四個正交維度，generator 在 cells.ts 裡組合它們產出 piano-roll notes（取代 v5 的 11-值 `style` 列舉，同時解決「arp 只能單音、7-音和弦聽不全」的問題）：
 
-- block / sustain：整個 span 一個長 note
-- arp / alberti：pattern 每拍 cycle 一次
+- **shape**：節奏的 *型態*。`sustain · pulse · bass-chord · arp-up/down/updown · alberti · charleston · syncopated · clave`。每個 shape 都有一份「canonical hits」清單（priority-ordered）。
+- **density (0–1)**：在那份清單上做 top-K cutoff — 弱拍先被丟掉。density=0 仍會留下最重要的那一拍，density=1 觸發整個 pattern。
+- **syncopation (0–1)**：每個落在強拍上的 hit 有此機率被推到 &-of-the-beat（決定論 hash，不會每次重抽）。
+- **voices (0–1)**：每個 chord stab 點到 voicing 中幾顆音。排序 = top voice → 3 / 7（guide tones）→ 9 / 11 / 13 → 5 → root（5 音是專業鍵盤手最先省略的；root 通常已經在 bass 音域實現了）。所以 7-音 C13 在 voices=0.4 時會發出「最高音 + 3rd + 7th」三顆音，正好是專業 comping 會做的事。voices=0 等於 rest。
+
+Bass 角色（bass-chord / charleston / syncopated / clave 等 shape 會用到）會獨立計算和弦的真正根音（含斜線和弦的低音），放在低音域 — rootless voicing 雖把 root 從上層拿掉，bass 仍然會打出真正的根音。
+
+每個 chord-span（從一個有和弦的 beat 起，延續到下一個有和弦的 beat 或 bar 結束）都套用上面這套流程。
 
 ## Piano roll
 
@@ -66,9 +72,10 @@
 - 高度可拖曳調整：panel 的最頂端有 `ns-resize` 條，往上拖會增高；存在 `score.pianoRollHeight`
 - 1/32 音符網格，cells per beat = `32 / denominator`（4/4 ⇒ 8 cells/beat、6/8 ⇒ 4 cells/beat）
 - pitch column sticky-left；不再需要 ±12 / 縮放範圍按鈕
-- 互動
-  - 在空 cell 上按住拖曳：建立 note，drag 控制 duration（相當於 note-on + 一連串 sustain cell）
-  - 按住 alt 或 cmd：cursor 變成紅色 ⊘ X 圖示，進入刪除模式；單擊或拖曳經過的 note 都會被刪除
+- 互動（三種模式，cursor 會跟著切換）
+  - **select（預設）**：cursor 為原生指標。點 note 選取，shift-click 多選，drag 已選 note 移動位置（pitch + 時間），drag note 左右邊緣可變長變短，空白處 drag 啟動框選（marquee）。`backspace` / `delete` 刪掉所有已選 note。
+  - **draw（按住 alt / cmd）**：cursor 為畫筆。click + drag 空 cell 畫 note，drag 控制 duration（可延伸到同 row 的下一個 bar）。
+  - **delete（按住 `d`）**：cursor 為 X。click 或 drag 過 note 都會把它刪掉。游標單色，無顏色。
   - 每個 measure 右上角有 ↻ regenerate（從和弦重建）和 × clear all；overlay button 用 `mousedown.stop` 避免穿透到底下的 grid handler
 - midi in 啟用時，目前按下的鍵在 piano roll 對應 pitch 的整排會亮起，pitch column 上對應的 key 也會反白
 - 不能 toggle cell 變成「孤兒 sustain」：sustain 是 note 的延續，沒有 note-on 在前就不存在
@@ -87,7 +94,7 @@
   - `i`：在 playhead 所在位置 insert 新 measure（原本的會往後推）
   - `a`：在 playhead 後 append 新 measure
   - `shift+i` / `shift+a`：同上但對 row 操作
-  - `y` / `p`：yank / paste 當前 playhead beat 的 style / voicing / range 設定
+  - `y` / `p`：yank / paste 當前 playhead beat 的所有設定（voicing / range / shape / density / syncopation / voices）
 - Playhead 移動（最低單位一拍）
   - `←` / `→`：前後一個 beat（會跨 measure / 跨 line）
   - `↑` / `↓`：往同一 measure 的上 / 下一個 beat；如果在 measure 邊界，跳到鄰近 line 的同一 x 軸 measure 的最後 / 第一個 beat
@@ -114,13 +121,15 @@
 
 - 已不存在 per-beat gear button + popover；改成 piano roll 頭部一條橫向 strip
 - 永遠操作「playhead 所在的 beat」；focus 任何 chord input 也會把 playhead 移過去，所以 strip 會跟著你正在編輯的 beat 自動更新
-- strip 內容（攤平在一行）
+- strip 內容（攤平在一行，按重要性順序）
   - beat 位置標記（`r1·b2·1`）+ 該 beat 的 chord（unparseable 為紅色）
-  - style select / voicing select
+  - voicing select
+  - shape select（sustain / pulse / bass-chord / arp ↑↓ / alberti / charleston / syncopated / clave）
+  - density / syncopation / voices 三個 0–100% slider
   - rangeCenter slider（24..96）+ 顯示對應 note name
   - rangeSpread slider（0..36 semitones）
   - 推算出來的 voicing notes 預覽
-  - yank / paste / regen 按鈕（鍵盤 y / p / 也可以從這裡按）
+  - yank / paste / regen 按鈕（鍵盤 y / p 也可以從這裡按）
 
 ## Output
 
